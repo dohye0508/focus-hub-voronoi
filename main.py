@@ -1,4 +1,4 @@
-import os, glob, re, json
+import os
 import numpy as np
 import pandas as pd
 import geopandas as gpd
@@ -10,69 +10,78 @@ from scipy.cluster.vq import kmeans2
 import warnings
 warnings.filterwarnings('ignore')
 
-# --- CONFIG & DIRS ---
 def setup_dirs():
     for d in ['data/raw','data/processed','data/spatial','results']:
         os.makedirs(d, exist_ok=True)
 
-# --- DATA LOADERS (NATIONWIDE) ---
-def load_nationwide_academies():
-    print("[1] Loading Nationwide Academy Data...")
+# ── DATA LOADERS ─────────────────────────────────────────────────────
+
+def load_academies():
+    print("[1] Loading Academy Data...")
     path = "data/raw/학원교습소정보_2026년04월30일기준.csv"
-    if not os.path.exists(path): return pd.DataFrame(), {}
-    for enc in ['utf-8', 'cp949', 'euc-kr', 'utf-8-sig']:
-        try:
-            df = pd.read_csv(path, encoding=enc)
-            addr_col = [c for c in df.columns if '주소' in str(c)][0]
-            name_col = [c for c in df.columns if '명' in str(c) and '학원' in str(c)][0]
-            df['sigungu'] = df[addr_col].apply(lambda x: " ".join(str(x).split()[:2]))
-            counts = df.groupby('sigungu').size().to_dict()
-            return df[[name_col, addr_col, 'sigungu']], counts
-        except: continue
-    return pd.DataFrame(), {}
-
-def load_nationwide_population():
-    print("[2] Loading Nationwide Population Data...")
-    path = "data/raw/행정안전부_지역별(행정동) 성별 연령별 주민등록 인구수_20260430.csv"
     if not os.path.exists(path): return {}
-    for enc in ['cp949', 'utf-8', 'euc-kr']:
-        try:
-            df = pd.read_csv(path, encoding=enc)
-            cols = df.columns.tolist()
-            youth_cols = [i for i, c in enumerate(cols) if any(f"{age}세" in str(c) for age in range(10, 25))]
-            df['youth_pop'] = df.iloc[:, youth_cols].apply(lambda x: pd.to_numeric(x.astype(str).str.replace(',',''), errors='coerce')).sum(axis=1)
-            df['sigungu'] = df.iloc[:, 2].astype(str) + " " + df.iloc[:, 3].astype(str)
-            return df.groupby('sigungu')['youth_pop'].sum().to_dict()
-        except: continue
-    return {}
+    try:
+        df = pd.read_csv(path, encoding='cp949', low_memory=False)
+        addr_col = [c for c in df.columns if '주소' in str(c)][0]
+        df['sig'] = df[addr_col].apply(lambda x: ' '.join(str(x).split()[:2]))
+        counts = df.groupby('sig').size().to_dict()
+        print(f"  {len(df):,} academies in {len(counts)} regions.")
+        return counts
+    except Exception as e:
+        print(f"  Error: {e}"); return {}
 
-def load_nationwide_stress():
-    print("[3] Loading Nationwide Stress Data...")
+def load_stress():
+    print("[2] Loading Stress Data...")
     path = "data/raw/시·군·구별_스트레스_인지율_20260515193518.xlsx"
     if not os.path.exists(path): return {}
     try:
         df = pd.read_excel(path, header=None)
         df[0] = df[0].ffill()
-        stress_dict = {}
+        out = {}
         for _, row in df.iterrows():
+            sido, sig = str(row.iloc[0]), str(row.iloc[1])
+            if sido == 'nan' or sig == 'nan': continue
             try:
-                sido, sigungu = str(row.iloc[0]), str(row.iloc[1])
-                if sido=='nan' or sigungu=='nan' or 'ñ' in sigungu: continue
-                stress_dict[f"{sido} {sigungu}"] = float(str(row.iloc[4]).replace(',',''))
-            except: continue
-        return stress_dict
-    except: return {}
+                out[f"{sido} {sig}"] = float(str(row.iloc[4]))
+            except: pass
+        print(f"  {len(out)} regions.")
+        return out
+    except Exception as e:
+        print(f"  Error: {e}"); return {}
 
-def load_nationwide_shelters():
-    print("[4] Loading Nationwide Shelter Data...")
+def load_population():
+    print("[3] Loading Population Data...")
+    path = "data/raw/행정안전부_지역별(행정동) 성별 연령별 주민등록 인구수_20260430.csv"
+    if not os.path.exists(path): return {}
     try:
-        return gpd.read_file("data/spatial/전국+청소년쉼터+현황/Youth shelter.shp")
-    except: return pd.DataFrame()
+        df = pd.read_csv(path, encoding='cp949', low_memory=False)
+        cols = df.columns.tolist()
+        youth = [i for i,c in enumerate(cols) if any(f"{a}세" in str(c) for a in range(10,25))]
+        df['yp'] = df.iloc[:,youth].apply(lambda x: pd.to_numeric(x.astype(str).str.replace(',',''), errors='coerce')).sum(axis=1)
+        df['sig'] = df.iloc[:,2].astype(str) + ' ' + df.iloc[:,3].astype(str)
+        out = df.groupby('sig')['yp'].sum().to_dict()
+        print(f"  {len(out)} regions.")
+        return out
+    except Exception as e:
+        print(f"  Error: {e}"); return {}
 
-# --- GEOGRAPHY HELPERS ---
-def get_sigungu_coords():
+def load_shelters():
+    print("[4] Loading Shelter Data...")
+    try:
+        gdf = gpd.read_file("data/spatial/전국+청소년쉼터+현황/Youth shelter.shp")
+        print(f"  {len(gdf)} shelters. CRS: {gdf.crs}")
+        # Convert to WGS84 if needed
+        if gdf.crs and gdf.crs.to_epsg() != 4326:
+            gdf = gdf.to_crs(epsg=4326)
+        return gdf
+    except Exception as e:
+        print(f"  Error: {e}"); return gpd.GeoDataFrame()
+
+# ── COORDINATE DICTIONARY ─────────────────────────────────────────────
+
+def get_coords():
     return {
-        # 서울
+        # 서울 25구
         "서울특별시 강남구":(37.495,127.062),"서울특별시 서초구":(37.483,127.032),
         "서울특별시 송파구":(37.514,127.106),"서울특별시 강동구":(37.530,127.124),
         "서울특별시 마포구":(37.566,126.901),"서울특별시 용산구":(37.532,126.990),
@@ -106,12 +115,11 @@ def get_sigungu_coords():
         "인천광역시 계양구":(37.537,126.739),"인천광역시 미추홀구":(37.463,126.650),
         "인천광역시 동구":(37.474,126.643),"인천광역시 중구":(37.474,126.621),
         # 부산
-        "부산광역시 해운대구":(35.163,129.163),"부산광역시 사상구":(35.157,128.992),
-        "부산광역시 부산진구":(35.163,129.053),"부산광역시 남구":(35.136,129.085),
-        "부산광역시 북구":(35.197,128.989),"부산광역시 동래구":(35.205,129.085),
-        "부산광역시 사하구":(35.099,128.974),"부산광역시 수영구":(35.145,129.113),
-        "부산광역시 연제구":(35.174,129.079),"부산광역시 금정구":(35.240,129.091),
-        "부산광역시 강서구":(35.209,128.981),"부산광역시 서구":(35.097,129.024),
+        "부산광역시 해운대구":(35.163,129.163),"부산광역시 부산진구":(35.163,129.053),
+        "부산광역시 남구":(35.136,129.085),"부산광역시 북구":(35.197,128.989),
+        "부산광역시 동래구":(35.205,129.085),"부산광역시 사하구":(35.099,128.974),
+        "부산광역시 수영구":(35.145,129.113),"부산광역시 연제구":(35.174,129.079),
+        "부산광역시 금정구":(35.240,129.091),"부산광역시 사상구":(35.157,128.992),
         # 대구
         "대구광역시 수성구":(35.858,128.631),"대구광역시 달서구":(35.830,128.532),
         "대구광역시 북구":(35.886,128.583),"대구광역시 동구":(35.887,128.635),
@@ -134,14 +142,16 @@ def get_sigungu_coords():
         # 충청
         "충청북도 청주시":(36.641,127.489),"충청북도 충주시":(36.991,127.925),
         "충청남도 천안시":(36.806,127.152),"충청남도 아산시":(36.789,127.004),
+        "충청남도 서산시":(36.784,126.450),"충청남도 당진시":(36.890,126.628),
         # 전라
         "전라북도 전주시":(35.824,127.148),"전라북도 익산시":(35.948,126.958),
-        "전라북도 군산시":(35.968,126.737),
+        "전라북도 군산시":(35.968,126.737),"전라북도 완주군":(35.905,127.158),
         "전라남도 여수시":(34.762,127.662),"전라남도 순천시":(34.950,127.488),
-        "전라남도 목포시":(34.812,126.393),
+        "전라남도 목포시":(34.812,126.393),"전라남도 광양시":(34.944,127.696),
         # 경상
         "경상북도 포항시":(36.019,129.343),"경상북도 구미시":(36.120,128.344),
         "경상북도 경주시":(35.856,129.225),"경상북도 경산시":(35.825,128.741),
+        "경상북도 안동시":(36.574,128.729),
         "경상남도 창원시":(35.228,128.681),"경상남도 김해시":(35.228,128.889),
         "경상남도 진주시":(35.180,128.107),"경상남도 양산시":(35.335,129.036),
         # 강원
@@ -151,146 +161,239 @@ def get_sigungu_coords():
         "제주특별자치도 제주시":(33.500,126.531),"제주특별자치도 서귀포시":(33.253,126.561),
     }
 
-def hsl_to_hex(h,s,l):
-    h/=360
-    if s==0: r=g=b=l
+# ── COLOR UTILS ──────────────────────────────────────────────────────
+
+def hsl_to_hex(h, s, l):
+    h /= 360
+    if s == 0: r = g = b = l
     else:
-        def h2r(p,q,t):
-            t=t%1
-            if t<1/6: return p+(q-p)*6*t
-            if t<1/2: return q
-            if t<2/3: return p+(q-p)*(2/3-t)*6
+        def h2r(p, q, t):
+            t = t % 1
+            if t < 1/6: return p + (q-p)*6*t
+            if t < 1/2: return q
+            if t < 2/3: return p + (q-p)*(2/3-t)*6
             return p
-        q=l*(1+s) if l<0.5 else l+s-l*s; p=2*l-q
-        r=h2r(p,q,h+1/3); g=h2r(p,q,h); b=h2r(p,q,h-1/3)
+        q = l*(1+s) if l < 0.5 else l+s-l*s
+        p = 2*l - q
+        r = h2r(p,q,h+1/3); g = h2r(p,q,h); b = h2r(p,q,h-1/3)
     return '#{:02x}{:02x}{:02x}'.format(int(r*255),int(g*255),int(b*255))
 
-def make_div_icon(label, color, size=34):
-    return folium.DivIcon(html=f"""
-    <div style="width:{size}px;height:{size}px;background:{color};border-radius:50%;border:3px solid white;
-    box-shadow:0 2px 10px rgba(0,0,0,0.2);display:flex;align-items:center;justify-content:center;
-    font-size:10px;font-weight:700;color:white;">{label}</div>""", icon_size=(size,size), icon_anchor=(size//2,size//2))
+def cvi_to_color(cvi_norm):
+    """Low CVI = blue, High CVI = red via HSL."""
+    hue = 220 - cvi_norm * 220  # 220 (blue) → 0 (red)
+    return hsl_to_hex(hue, 0.80, 0.55)
 
-# --- MAIN ANALYSIS ---
+def make_icon(label, color, size=32):
+    return folium.DivIcon(
+        html=f'<div style="width:{size}px;height:{size}px;background:{color};'
+             f'border-radius:50%;border:2.5px solid white;'
+             f'box-shadow:0 2px 8px rgba(0,0,0,0.25);'
+             f'display:flex;align-items:center;justify-content:center;'
+             f'font-size:9px;font-weight:700;color:white;">{label}</div>',
+        icon_size=(size, size), icon_anchor=(size//2, size//2))
+
+# ── MAIN MAP BUILD ────────────────────────────────────────────────────
+
 def build_map():
     setup_dirs()
-    acad_df, acad_counts = load_nationwide_academies()
-    pop_dict = load_nationwide_population()
-    stress_dict = load_nationwide_stress()
-    shelters = load_nationwide_shelters()
-    
+    acad = load_academies()
+    stress = load_stress()
+    pop = load_population()
+    shelters = load_shelters()
+    coords = get_coords()
+
+    # ── CVI per region ─────────────────────────────────────────────
     print("[5] Calculating CVI...")
-    all_sig = set(acad_counts.keys()) | set(pop_dict.keys()) | set(stress_dict.keys())
-    max_a = max(acad_counts.values()) if acad_counts else 1
-    max_p = max(pop_dict.values()) if pop_dict else 1
-    max_s = max(stress_dict.values()) if stress_dict else 1
-    
-    res = []
-    for s in all_sig:
-        a, p, sr = acad_counts.get(s,0), pop_dict.get(s,0), stress_dict.get(s,0)
-        cvi = round(0.4*(a/max_a) + 0.3*(p/max_p) + 0.3*(sr/max_s), 3)
-        if a > 5: res.append({"region":s, "academies":a, "pop":p, "stress":sr, "cvi":cvi})
-    res_df = pd.DataFrame(res).sort_values('cvi', ascending=False)
-    top_10 = res_df.head(10)['region'].tolist()
-    
-    print("[6] Generating Points...")
-    major_coords = get_sigungu_coords()
-    viz_points = []
-    for reg in top_10:
-        center = major_coords.get(reg, (36.5, 127.5))
-        # Increase points for detailed Voronoi (Top 10 regions)
-        for _ in range(80):
-            viz_points.append({"lat":center[0]+np.random.normal(0,0.012), "lon":center[1]+np.random.normal(0,0.012), "region":reg})
-    
-    # Heatmap uses ONLY regions with verified coordinates (no random fallback)
-    heat_points = []
-    for reg, count in acad_counts.items():
-        if reg in major_coords:
-            c = major_coords[reg]
-            heat_points.append([c[0], c[1], count])
+    max_a = max(acad.values()) if acad else 1
+    max_s = max(stress.values()) if stress else 1
+    max_p = max(pop.values()) if pop else 1
+    cvi = {}
+    for reg in coords:
+        a = acad.get(reg, 0)
+        s = stress.get(reg, 0)
+        p = pop.get(reg, 0)
+        cvi[reg] = round(0.4*(a/max_a) + 0.3*(s/max_s) + 0.3*(p/max_p), 3)
 
-    m = folium.Map(location=[36.5, 127.5], zoom_start=7, tiles=None)
-    folium.TileLayer('CartoDB positron', name='지도 배경(밝음)', show=True).add_to(m)
-    folium.TileLayer('CartoDB dark_matter', name='지도 배경(어두움)', show=False).add_to(m)
+    cvi_vals = list(cvi.values())
+    cvi_max = max(cvi_vals) if cvi_vals else 1
+    cvi_min = min(cvi_vals) if cvi_vals else 0
 
-    # ── VORONOI (Per Region) ─────────────────
-    vor_grp = folium.FeatureGroup(name="상위 10대 취약지역 정밀분석", show=True)
-    for reg in top_10:
-        reg_pts = pd.DataFrame([p for p in viz_points if p['region']==reg])
-        if len(reg_pts) < 10: continue
-        pts = np.array(list(zip(reg_pts['lon'], reg_pts['lat'])))
-        # Create a localized Voronoi box for this region
-        la, lo = pts[:,1].mean(), pts[:,0].mean()
-        bdry = np.array([[lo+x, la+y] for x in [-0.15,0.15] for y in [-0.15,0.15]])
-        vor = Voronoi(np.vstack([pts, bdry]))
-        
-        # Color variety within region
-        sorted_idx = np.argsort(np.random.rand(len(pts)))
-        rank_map = {i:r for r,i in enumerate(sorted_idx)}
-        
-        for i, reg_idx in enumerate(vor.point_region[:len(pts)]):
-            idx = vor.regions[reg_idx]
-            if -1 not in idx and len(idx)>0:
-                verts = [vor.vertices[j] for j in idx]
-                hue = (180 + rank_map[i]/len(pts)*300)%360
-                folium.Polygon(
-                    locations=[[v[1],v[0]] for v in verts],
-                    color='rgba(255,255,255,0.3)', weight=0.6,
-                    fill=True, fill_color=hsl_to_hex(hue, 0.75, 0.55), fill_opacity=0.45,
-                    tooltip=f"수요 세력권 ({reg})"
-                ).add_to(vor_grp)
+    # ── Build SINGLE unified Voronoi ──────────────────────────────
+    print("[6] Building Unified Voronoi...")
+
+    # Weight each region by academy count: more academies = more sub-points
+    # But we use ONE point per region for the seed, so each region gets exactly 1 polygon
+    seeds = []  # (lon, lat)
+    seed_regs = []
+    for reg, (la, lo) in coords.items():
+        # Slightly jitter to avoid exact duplicates
+        seeds.append((lo + np.random.uniform(-0.001, 0.001),
+                       la + np.random.uniform(-0.001, 0.001)))
+        seed_regs.append(reg)
+
+    seeds = np.array(seeds)
+
+    # Korea bounding box with generous margin
+    KOR_LAT = (33.0, 38.7)
+    KOR_LON = (124.5, 130.0)
+    n_bdry = 12
+    bdry = np.array([
+        [lo, la]
+        for la in np.linspace(KOR_LAT[0]-0.5, KOR_LAT[1]+0.5, n_bdry)
+        for lo in np.linspace(KOR_LON[0]-0.5, KOR_LON[1]+0.5, n_bdry)
+    ])
+
+    all_pts = np.vstack([seeds, bdry])
+    vor = Voronoi(all_pts)
+
+    # ── MAP ──────────────────────────────────────────────────────
+    print("[7] Rendering Map...")
+    m = folium.Map(location=[36.5, 127.8], zoom_start=7, tiles=None)
+    folium.TileLayer('CartoDB positron', name='지도 배경', show=True).add_to(m)
+
+    # ── VORONOI LAYER ────────────────────────────────────────────
+    vor_grp = folium.FeatureGroup(name="전국 학원 수요 세력권 (보로노이)", show=True)
+
+    for i, ri in enumerate(vor.point_region[:len(seeds)]):
+        region_idx = vor.regions[ri]
+        if -1 in region_idx or len(region_idx) == 0:
+            continue
+        verts = [vor.vertices[j] for j in region_idx]
+
+        # Clip to Korea bounds (skip if centroid is way outside)
+        cx = np.mean([v[0] for v in verts])
+        cy = np.mean([v[1] for v in verts])
+        if not (KOR_LON[0] <= cx <= KOR_LON[1] and KOR_LAT[0] <= cy <= KOR_LAT[1]):
+            continue
+
+        reg = seed_regs[i]
+        cv = cvi.get(reg, 0)
+        cv_norm = (cv - cvi_min) / max(cvi_max - cvi_min, 0.001)
+        color = cvi_to_color(cv_norm)
+        a_cnt = acad.get(reg, 0)
+
+        folium.Polygon(
+            locations=[[v[1], v[0]] for v in verts],
+            color='rgba(180,180,180,0.4)', weight=0.8,
+            fill=True, fill_color=color, fill_opacity=0.40,
+            tooltip=f"<b>{reg}</b><br>학원: {a_cnt:,}개 | CVI: {cv:.2f}"
+        ).add_to(vor_grp)
+
     vor_grp.add_to(m)
 
-    # ── HEATMAP ──────────────────────────────
-    heat_grp = folium.FeatureGroup(name="전국 학원가 열지도", show=True)
-    HeatMap([[p[0], p[1]] for p in heat_points], radius=15, blur=12).add_to(heat_grp)
+    # ── HEATMAP LAYER ────────────────────────────────────────────
+    heat_grp = folium.FeatureGroup(name="학원 밀집도 열지도", show=False)
+    heat_pts = []
+    for reg, (la, lo) in coords.items():
+        w = acad.get(reg, 0)
+        if w > 0:
+            heat_pts.append([la, lo, w])
+    if heat_pts:
+        HeatMap(heat_pts, radius=35, blur=25, min_opacity=0.2,
+                max_val=max(h[2] for h in heat_pts)).add_to(heat_grp)
     heat_grp.add_to(m)
 
-    # ── SHELTERS ─────────────────────────────
-    sh_grp = folium.FeatureGroup(name="전국 청소년 쉼터", show=True)
-    for _, r in shelters.iterrows():
-        try:
-            folium.Marker(location=[r.geometry.y, r.geometry.x], 
-                icon=make_div_icon('쉼터', '#e74c3c', 30), tooltip=str(r['A9'])).add_to(sh_grp)
-        except: pass
+    # ── SHELTER LAYER ────────────────────────────────────────────
+    sh_grp = folium.FeatureGroup(name="전국 청소년 쉼터 (135개소)", show=True)
+    shelter_count = 0
+    if len(shelters) > 0:
+        for _, row in shelters.iterrows():
+            try:
+                geom = row.geometry
+                if geom is None or geom.is_empty:
+                    continue
+                lo, la = geom.x, geom.y
+                # Sanity check (Korea bounds)
+                if not (124 < lo < 132 and 33 < la < 39):
+                    continue
+                name = str(row.get('A9', '쉼터'))
+                folium.Marker(
+                    location=[la, lo],
+                    icon=make_icon('쉼터', '#e74c3c', 30),
+                    popup=folium.Popup(f"<b>{name}</b>", max_width=200),
+                    tooltip=name
+                ).add_to(sh_grp)
+                shelter_count += 1
+            except:
+                continue
     sh_grp.add_to(m)
 
-    # ── UI PANELS ────────────────────────────
-    table_rows = "".join([f"""
-    <tr style="border-bottom:1px solid #f0f0f4; font-size:10px;">
-      <td style="padding:6px 2px; font-weight:600; color:#2d3436;">{row['region']}</td>
-      <td style="padding:6px; text-align:right; color:#2980b9;">{int(row['academies']):,}</td>
-      <td style="padding:6px; text-align:right; color:#e74c3c;">{row['stress']}%</td>
-      <td style="padding:6px; text-align:right;">
-        <div style="display:flex;align-items:center;gap:4px;">
-           <div style="flex:1;background:#f0f0f4;height:5px;border-radius:3px;">
-              <div style="background:#f39c12;width:{int(row['cvi']*100)}%;height:100%;border-radius:3px;"></div>
-           </div>
-           <span style="font-size:9px;color:#f39c12;font-weight:700;">{row['cvi']:.2f}</span>
-        </div>
-      </td>
-    </tr>""" for _, row in res_df.head(15).iterrows()])
+    LayerControl(collapsed=False).add_to(m)
+
+    # ── STATS PANEL ──────────────────────────────────────────────
+    top15 = sorted(cvi.items(), key=lambda x: -x[1])[:15]
+    rows = ""
+    for reg, score in top15:
+        bw = int(score / max(cvi_max, 0.001) * 100)
+        bc = "#e74c3c" if score > 0.6 else "#f39c12" if score > 0.4 else "#27ae60"
+        ac = acad.get(reg, 0)
+        sr = stress.get(reg, 0)
+        rows += f"""<tr style="border-bottom:1px solid #f0f0f4;">
+            <td style="padding:5px 3px;font-size:10px;font-weight:600;color:#2d3436;">{reg}</td>
+            <td style="padding:5px;text-align:right;color:#2980b9;font-size:10px;">{ac:,}</td>
+            <td style="padding:5px;text-align:right;color:#e74c3c;font-size:10px;">{sr}%</td>
+            <td style="padding:5px;">
+                <div style="display:flex;align-items:center;gap:4px;">
+                    <div style="flex:1;background:#f0f0f4;height:5px;border-radius:3px;">
+                        <div style="background:{bc};width:{bw}%;height:100%;border-radius:3px;"></div>
+                    </div>
+                    <span style="font-size:9px;color:{bc};font-weight:700;min-width:24px;">{score:.2f}</span>
+                </div>
+            </td>
+        </tr>"""
+
+    legend_bar = ""
+    for i in range(11):
+        pct = i / 10
+        hue = 220 - pct * 220
+        c = hsl_to_hex(hue, 0.80, 0.55)
+        legend_bar += f'<div style="flex:1;background:{c};height:10px;"></div>'
 
     panel = f"""
-    <div style="position:fixed; top:15px; left:60px; z-index:1000; background:rgba(255,255,255,0.96); 
-    backdrop-filter:blur(10px); border-radius:18px; padding:20px; box-shadow:0 8px 30px rgba(0,0,0,0.15); width:350px; 
-    font-family:'Noto Sans KR',sans-serif; border:1px solid rgba(0,0,0,0.05);">
-        <div style="margin-bottom:15px;">
-          <h4 style="margin:0; font-size:14px; font-weight:800; color:#2d3436;">전국 청소년 복지 취약지수 Top 15</h4>
-          <p style="margin:2px 0 0; font-size:9px; color:#95a5a6;">학원·인구·건강 통합 데이터 분석</p>
+    <div style="position:fixed;top:15px;left:60px;z-index:1000;
+        background:rgba(255,255,255,0.97);backdrop-filter:blur(12px);
+        border-radius:16px;padding:18px 20px;
+        box-shadow:0 6px 28px rgba(0,0,0,0.13),0 0 0 1px rgba(0,0,0,0.05);
+        font-family:'Noto Sans KR',sans-serif;width:360px;">
+        <div style="margin-bottom:14px;">
+            <div style="font-size:14px;font-weight:800;color:#2d3436;">전국 청소년 복지 취약지수</div>
+            <div style="font-size:9px;color:#95a5a6;">CVI = 0.4×학원 + 0.3×인구 + 0.3×스트레스 | 전국 {len(coords)}개 시군구</div>
         </div>
-        <table style="width:100%; border-collapse:collapse;">
-            <tr style="font-size:9px; color:#95a5a6; border-bottom:2px solid #f0f0f4; text-align:left;">
-                <th style="padding:5px;">지역</th><th style="text-align:right;">학원</th><th style="text-align:right;">스트레스</th><th style="text-align:right;">CVI</th>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;">
+            <div style="background:#fff5f5;border:1.5px solid #ffd5d5;border-radius:10px;padding:8px;text-align:center;">
+                <div style="font-size:18px;font-weight:800;color:#e74c3c;">138k+</div>
+                <div style="font-size:8px;color:#999;">전국 학원</div>
+            </div>
+            <div style="background:#f0f7ff;border:1.5px solid #d5e8ff;border-radius:10px;padding:8px;text-align:center;">
+                <div style="font-size:18px;font-weight:800;color:#2980b9;">{shelter_count}</div>
+                <div style="font-size:8px;color:#999;">전국 쉼터</div>
+            </div>
+            <div style="background:#f0fff5;border:1.5px solid #d5ffe8;border-radius:10px;padding:8px;text-align:center;">
+                <div style="font-size:18px;font-weight:800;color:#27ae60;">{len(coords)}</div>
+                <div style="font-size:8px;color:#999;">분석 지역</div>
+            </div>
+        </div>
+        <div style="font-size:9px;color:#95a5a6;margin-bottom:4px;">취약지수 (색상 범례)</div>
+        <div style="display:flex;border-radius:4px;overflow:hidden;margin-bottom:2px;height:10px;">{legend_bar}</div>
+        <div style="display:flex;justify-content:space-between;font-size:8px;color:#bdc3c7;margin-bottom:12px;">
+            <span>낮음</span><span>높음</span>
+        </div>
+        <div style="height:1px;background:#f0f0f4;margin-bottom:10px;"></div>
+        <table style="width:100%;border-collapse:collapse;">
+            <tr style="border-bottom:2px solid #f0f0f4;">
+                <th style="padding:4px 3px;font-size:9px;color:#95a5a6;font-weight:500;text-align:left;">지역</th>
+                <th style="padding:4px;font-size:9px;color:#2980b9;font-weight:500;text-align:right;">학원</th>
+                <th style="padding:4px;font-size:9px;color:#e74c3c;font-weight:500;text-align:right;">스트레스</th>
+                <th style="padding:4px;font-size:9px;color:#f39c12;font-weight:500;">CVI</th>
             </tr>
-            {table_rows}
+            {rows}
         </table>
     </div>"""
     m.get_root().html.add_child(folium.Element(panel))
 
-    LayerControl(collapsed=False).add_to(m)
-    m.save("results/nationwide_analysis.html")
-    print("\n[DONE] Map updated with fixed Voronoi and Checkbox UI.")
+    out = "results/nationwide_analysis.html"
+    m.save(out)
+    print(f"\n[DONE] Saved {out} | Shelters:{shelter_count} | Regions:{len(coords)}")
 
 if __name__ == "__main__":
     build_map()
