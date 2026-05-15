@@ -287,15 +287,17 @@ def build_map():
 
     seeds = np.array(seeds)
 
-    # Korea bounding box with generous margin
+    # Use a RING of boundary points to prevent them from falling inside Korea
     KOR_LAT = (33.0, 38.7)
     KOR_LON = (124.5, 130.0)
-    n_bdry = 12
-    bdry = np.array([
-        [lo, la]
-        for la in np.linspace(KOR_LAT[0]-0.5, KOR_LAT[1]+0.5, n_bdry)
-        for lo in np.linspace(KOR_LON[0]-0.5, KOR_LON[1]+0.5, n_bdry)
-    ])
+    bdry = []
+    for la in np.linspace(KOR_LAT[0]-1, KOR_LAT[1]+1, 40):
+        bdry.append([KOR_LON[0]-1, la])
+        bdry.append([KOR_LON[1]+1, la])
+    for lo in np.linspace(KOR_LON[0]-1, KOR_LON[1]+1, 40):
+        bdry.append([lo, KOR_LAT[0]-1])
+        bdry.append([lo, KOR_LAT[1]+1])
+    bdry = np.array(bdry)
 
     all_pts = np.vstack([seeds, bdry])
     vor = Voronoi(all_pts)
@@ -372,9 +374,8 @@ def build_map():
                 continue
     sh_grp.add_to(m)
 
-    # ── P-MEDIAN OPTIMAL SITES ───────────────────────────────────
-    opt_grp = folium.FeatureGroup(name="이동형 쉼터 배치 권장지 (p-median)", show=True)
-    # Use CVI-weighted coordinates as demand points
+    # ── P-MEDIAN OPTIMAL SITES (PRECOMPUTE 1~10) ─────────────────
+    print("[8] Precomputing p-median sites...")
     demand_pts = []
     for reg, (la, lo) in coords.items():
         cv = cvi.get(reg, 0)
@@ -385,26 +386,74 @@ def build_map():
                 la + np.random.normal(0, 0.01)
             ])
     demand_arr = np.array(demand_pts)
-    if len(demand_arr) >= 3:
-        try:
-            centroids, _ = kmeans2(demand_arr, 3, iter=30, seed=42)
-            site_labels = ["권장지 A", "권장지 B", "권장지 C"]
-            for i, (lo, la) in enumerate(centroids):
-                if 124 < lo < 132 and 33 < la < 39:
-                    folium.Marker(
-                        location=[la, lo],
-                        icon=make_icon('★', '#f39c12', 36),
-                        popup=folium.Popup(
-                            f"<b>이동형 쉼터 {site_labels[i]}</b><br>"
-                            f"p-median 알고리즘 기반 최적 배치 좌표<br>"
-                            f"Lat: {la:.4f} / Lon: {lo:.4f}", max_width=260),
-                        tooltip=f"★ 이동형 쉼터 {site_labels[i]}"
-                    ).add_to(opt_grp)
-        except Exception as e:
-            print(f"  p-median error: {e}")
-    opt_grp.add_to(m)
+    
+    opt_results = {}
+    import json
+    if len(demand_arr) >= 10:
+        for k in range(1, 11):
+            try:
+                centroids, _ = kmeans2(demand_arr, k, iter=50, minit='points', seed=42)
+                valid_c = []
+                for lo, la in centroids:
+                    if 124 < lo < 132 and 33 < la < 39:
+                        valid_c.append([float(la), float(lo)])
+                opt_results[k] = valid_c
+            except Exception as e:
+                print(f"p-median error for k={k}: {e}")
+                opt_results[k] = []
 
     LayerControl(collapsed=False).add_to(m)
+
+    map_id = m.get_name()
+    opt_json = json.dumps(opt_results)
+    
+    js_code = f"""
+    <div style="position:fixed;bottom:30px;left:50%;transform:translateX(-50%);z-index:9999;
+        background:rgba(255,255,255,0.95);backdrop-filter:blur(8px);
+        padding:15px 25px;border-radius:12px;box-shadow:0 4px 15px rgba(0,0,0,0.1);
+        font-family:'Noto Sans KR',sans-serif;text-align:center;border:1px solid #ddd;">
+        <div style="font-size:13px;font-weight:700;color:#2d3436;margin-bottom:8px;">
+            이동형 쉼터 추천 배치 (p-median): <span id="k_label" style="color:#e74c3c;font-size:16px;">3</span>개소
+        </div>
+        <input type="range" id="k_slider" min="1" max="10" value="3" style="width:250px;cursor:pointer;">
+    </div>
+    
+    <script>
+        var opt_data = {opt_json};
+        var opt_layer = L.layerGroup();
+        var map_obj = {map_id};
+        opt_layer.addTo(map_obj);
+        
+        var customIcon = L.divIcon({{
+            html: '<div style="width:36px;height:36px;background:#f39c12;border-radius:50%;border:2.5px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.25);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:white;">★</div>',
+            iconSize: [36, 36],
+            iconAnchor: [18, 18],
+            className: 'custom-div-icon'
+        }});
+
+        function updateOptSites(k) {{
+            opt_layer.clearLayers();
+            var sites = opt_data[k];
+            if(sites) {{
+                sites.forEach(function(coord, i) {{
+                    var marker = L.marker([coord[0], coord[1]], {{icon: customIcon}});
+                    var popup = '<b>이동형 쉼터 추천지 ' + (i+1) + '</b><br>p-median 알고리즘 최적 입지';
+                    marker.bindPopup(popup);
+                    marker.bindTooltip('★ 추천지 ' + (i+1));
+                    opt_layer.addLayer(marker);
+                }});
+            }}
+            document.getElementById('k_label').innerText = k;
+        }}
+        
+        document.getElementById('k_slider').addEventListener('input', function(e) {{
+            updateOptSites(e.target.value);
+        }});
+        
+        setTimeout(() => updateOptSites(3), 500);
+    </script>
+    """
+    m.get_root().html.add_child(folium.Element(js_code))
 
     # ── STATS PANEL ──────────────────────────────────────────────
     top15 = sorted(cvi.items(), key=lambda x: -x[1])[:15]
