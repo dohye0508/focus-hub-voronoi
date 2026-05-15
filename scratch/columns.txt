@@ -1,0 +1,17 @@
+File: acaInstiList_20260515_강화군.xlsx
+Columns: 순번, 학원명, 연락처, 주소, 설립·운영자, 교습과정, 정원, 교습기간(일), 총교습시간(분), 교습비세부내역, Unnamed: 10, Unnamed: 11, 적용일
+(최종교습비 
+변경일)
+
+First 10 rows:
+    순번           학원명  연락처                                          주소  설립·운영자     교습과정     정원 교습기간(일)  총교습시간(분)      교습비세부내역 Unnamed: 10 Unnamed: 11  적용일\n(최종교습비 \n변경일)
+0  NaN           NaN  NaN                                         NaN     NaN      NaN    NaN     NaN       NaN  교습비등(C=A+B)      교습비(A)     기타경비(B)                 NaN
+1  NaN           NaN  NaN                                         NaN     NaN     교습계열    NaN     NaN       NaN    기타경비 세부내역         NaN         NaN                 NaN
+2  NaN           NaN  NaN                                         NaN     NaN     교습과정    NaN     NaN       NaN        모의고사비         재료비         급식비                 NaN
+3  NaN           NaN  NaN                                         NaN     NaN     교습과목    NaN     NaN       NaN         기숙사비         피복비         차량비                 NaN
+4  1.0  72시간공부캠프기숙학원  NaN  인천광역시 강화군 길상면 보리고개로 174 (길상면, 강화로얄관광호텔(주))     1.0     보통교과  248.0   0개월0일   12600.0    3,380,000   1,890,000   1,490,000          20240712.0
+5  NaN           NaN  NaN                                         NaN     NaN       입시    NaN     NaN       NaN            0           0     630,000                 NaN
+6  NaN           NaN  NaN                                         NaN     NaN  입시(21일)    NaN     NaN       NaN      860,000           0           0                 NaN
+7  2.0  72시간공부캠프기숙학원  NaN  인천광역시 강화군 길상면 보리고개로 174 (길상면, 강화로얄관광호텔(주))     1.0     보통교과  248.0   0개월0일   13860.0    3,700,000   2,079,000   1,621,000          20240712.0
+8  NaN           NaN  NaN                                         NaN     NaN       입시    NaN     NaN       NaN            0           0     690,000                 NaN
+9  NaN           NaN  NaN                                         NaN     NaN  입시(23일)    NaN     NaN       NaN      931,000           0           0                 NaN
