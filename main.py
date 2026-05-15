@@ -421,8 +421,6 @@ def build_map():
     <script>
         var opt_data = {opt_json};
         var opt_layer = L.layerGroup();
-        var map_obj = {map_id};
-        opt_layer.addTo(map_obj);
         
         var customIcon = L.divIcon({{
             html: '<div style="width:36px;height:36px;background:#f39c12;border-radius:50%;border:2.5px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.25);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:white;">★</div>',
@@ -431,26 +429,38 @@ def build_map():
             className: 'custom-div-icon'
         }});
 
-        function updateOptSites(k) {{
-            opt_layer.clearLayers();
-            var sites = opt_data[k];
-            if(sites) {{
-                sites.forEach(function(coord, i) {{
-                    var marker = L.marker([coord[0], coord[1]], {{icon: customIcon}});
-                    var popup = '<b>이동형 쉼터 추천지 ' + (i+1) + '</b><br>p-median 알고리즘 최적 입지';
-                    marker.bindPopup(popup);
-                    marker.bindTooltip('★ 추천지 ' + (i+1));
-                    opt_layer.addLayer(marker);
-                }});
+        function initPmedian() {{
+            var map_obj = window["{map_id}"];
+            if (!map_obj) {{
+                setTimeout(initPmedian, 100);
+                return;
             }}
-            document.getElementById('k_label').innerText = k;
+            
+            opt_layer.addTo(map_obj);
+            
+            function updateOptSites(k) {{
+                opt_layer.clearLayers();
+                var sites = opt_data[k];
+                if(sites) {{
+                    sites.forEach(function(coord, i) {{
+                        var marker = L.marker([coord[0], coord[1]], {{icon: customIcon}});
+                        var popup = '<b>이동형 쉼터 추천지 ' + (i+1) + '</b><br>p-median 알고리즘 최적 입지';
+                        marker.bindPopup(popup);
+                        marker.bindTooltip('★ 추천지 ' + (i+1));
+                        opt_layer.addLayer(marker);
+                    }});
+                }}
+                document.getElementById('k_label').innerText = k;
+            }}
+            
+            document.getElementById('k_slider').addEventListener('input', function(e) {{
+                updateOptSites(e.target.value);
+            }});
+            
+            updateOptSites(3);
         }}
         
-        document.getElementById('k_slider').addEventListener('input', function(e) {{
-            updateOptSites(e.target.value);
-        }});
-        
-        setTimeout(() => updateOptSites(3), 500);
+        window.addEventListener('load', initPmedian);
     </script>
     """
     m.get_root().html.add_child(folium.Element(js_code))
