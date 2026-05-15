@@ -89,10 +89,12 @@ HeatMap(heat_data, name="Academy Density", radius=10, blur=15).add_to(m)
 for index, row in pilot_academies.iterrows():
     folium.CircleMarker(
         location=[row['lat'], row['lon']],
-        radius=1,
+        radius=4,
         color='black',
         fill=True,
-        opacity=0.5
+        fill_color='white',
+        fill_opacity=1,
+        popup=row['학원명']
     ).add_to(m)
 
 # Add Shelters as Big Red Markers
