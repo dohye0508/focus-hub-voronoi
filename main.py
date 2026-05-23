@@ -374,8 +374,8 @@ def build_map():
                 continue
     sh_grp.add_to(m)
 
-    # ── P-MEDIAN OPTIMAL SITES (PRECOMPUTE 1~10) ─────────────────
-    print("[8] Precomputing p-median sites...")
+    # ── P-MEDIAN OPTIMAL SITES (PRECOMPUTE 1~150) ─────────────────
+    print("[8] Precomputing p-median sites (k=1 to 150)...")
     demand_pts = []
     for reg, (la, lo) in coords.items():
         cv = cvi.get(reg, 0)
@@ -387,12 +387,12 @@ def build_map():
             ])
     demand_arr = np.array(demand_pts)
     
-    opt_results = {}
+    opt_results = {0: []}
     import json
     if len(demand_arr) >= 10:
-        for k in range(1, 11):
+        for k in range(1, 151):
             try:
-                centroids, _ = kmeans2(demand_arr, k, iter=50, minit='points', seed=42)
+                centroids, _ = kmeans2(demand_arr, k, iter=30, minit='points', seed=42)
                 valid_c = []
                 for lo, la in centroids:
                     if 124 < lo < 132 and 33 < la < 39:
@@ -408,14 +408,51 @@ def build_map():
     opt_json = json.dumps(opt_results)
     
     js_code = f"""
+    <style>
+        /* Scale and style Leaflet layer control checkboxes to be larger and premium */
+        .leaflet-control-layers-selector {{
+            transform: scale(1.6) !important;
+            margin: 6px 8px !important;
+            cursor: pointer !important;
+        }}
+        .leaflet-control-layers label {{
+            font-size: 13.5px !important;
+            font-weight: 600 !important;
+            margin: 6px 0 !important;
+            display: flex !important;
+            align-items: center !important;
+            cursor: pointer !important;
+            color: #2d3436 !important;
+            font-family: 'Noto Sans KR', sans-serif !important;
+        }}
+        .leaflet-control-layers {{
+            border-radius: 12px !important;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.12) !important;
+            border: 1px solid #e2e8f0 !important;
+        }}
+    </style>
+    
     <div style="position:fixed;bottom:30px;left:50%;transform:translateX(-50%);z-index:9999;
-        background:rgba(255,255,255,0.95);backdrop-filter:blur(8px);
-        padding:15px 25px;border-radius:12px;box-shadow:0 4px 15px rgba(0,0,0,0.1);
-        font-family:'Noto Sans KR',sans-serif;text-align:center;border:1px solid #ddd;">
-        <div style="font-size:13px;font-weight:700;color:#2d3436;margin-bottom:8px;">
-            이동형 쉼터 추천 배치 (p-median): <span id="k_label" style="color:#e74c3c;font-size:16px;">3</span>개소
+        background:rgba(255,255,255,0.96);backdrop-filter:blur(8px);
+        padding:18px 28px;border-radius:16px;box-shadow:0 6px 20px rgba(0,0,0,0.12);
+        font-family:'Noto Sans KR',sans-serif;text-align:center;border:1px solid #e2e8f0;
+        display: flex; flex-direction: column; align-items: center; gap: 8px;">
+        
+        <div style="font-size:14px;font-weight:800;color:#2d3436;display:flex;align-items:center;gap:8px;">
+            이동형 쉼터 추천 배치 (p-median): 
+            <input type="number" id="k_input" min="1" max="150" value="3" 
+                style="width:68px; font-size:15px; font-weight:800; text-align:center; 
+                padding:4px 6px; border-radius:8px; border:2.5px solid #e74c3c; color:#e74c3c;
+                outline:none; box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.05);">
+            <span style="font-weight:700; color:#2d3436; font-size:14px;">개소</span>
         </div>
-        <input type="range" id="k_slider" min="1" max="10" value="3" style="width:250px;cursor:pointer;">
+        
+        <div style="display:flex; align-items:center; gap:12px;">
+            <span style="font-size:11px; color:#95a5a6; font-weight:600;">1</span>
+            <input type="range" id="k_slider" min="1" max="150" value="3" 
+                style="width:280px; cursor:pointer; accent-color:#e74c3c;">
+            <span style="font-size:11px; color:#95a5a6; font-weight:600;">150</span>
+        </div>
     </div>
     
     <script>
@@ -428,7 +465,7 @@ def build_map():
             iconAnchor: [18, 18],
             className: 'custom-div-icon'
         }});
-
+ 
         function initPmedian() {{
             var map_obj = window["{map_id}"];
             if (!map_obj) {{
@@ -437,6 +474,9 @@ def build_map():
             }}
             
             opt_layer.addTo(map_obj);
+            
+            var slider = document.getElementById('k_slider');
+            var input = document.getElementById('k_input');
             
             function updateOptSites(k) {{
                 opt_layer.clearLayers();
@@ -450,14 +490,34 @@ def build_map():
                         opt_layer.addLayer(marker);
                     }});
                 }}
-                document.getElementById('k_label').innerText = k;
             }}
             
-            document.getElementById('k_slider').addEventListener('input', function(e) {{
-                updateOptSites(e.target.value);
+            function syncValue(val) {{
+                var num = parseInt(val);
+                if (isNaN(num)) return;
+                if (num < 1) num = 1;
+                if (num > 150) num = 150;
+                
+                slider.value = num;
+                input.value = num;
+                updateOptSites(num);
+            }}
+            
+            slider.addEventListener('input', function(e) {{
+                syncValue(e.target.value);
             }});
             
-            updateOptSites(3);
+            input.addEventListener('change', function(e) {{
+                syncValue(e.target.value);
+            }});
+            
+            input.addEventListener('keyup', function(e) {{
+                if (e.key === 'Enter') {{
+                    syncValue(e.target.value);
+                }}
+            }});
+            
+            syncValue(3);
         }}
         
         window.addEventListener('load', initPmedian);
@@ -495,45 +555,65 @@ def build_map():
         legend_bar += f'<div style="flex:1;background:{c};height:10px;"></div>'
 
     panel = f"""
-    <div style="position:fixed;top:15px;left:60px;z-index:1000;
+    <div id="stats_panel" style="position:fixed;top:15px;left:60px;z-index:1000;
         background:rgba(255,255,255,0.97);backdrop-filter:blur(12px);
         border-radius:16px;padding:18px 20px;
         box-shadow:0 6px 28px rgba(0,0,0,0.13),0 0 0 1px rgba(0,0,0,0.05);
-        font-family:'Noto Sans KR',sans-serif;width:360px;">
-        <div style="margin-bottom:14px;">
-            <div style="font-size:14px;font-weight:800;color:#2d3436;">전국 청소년 복지 취약지수</div>
+        font-family:'Noto Sans KR',sans-serif;width:360px;transition: all 0.3s ease;">
+        <div style="margin-bottom:14px;position:relative;">
+            <div style="font-size:14px;font-weight:800;color:#2d3436;padding-right:50px;">전국 청소년 복지 취약지수</div>
             <div style="font-size:9px;color:#95a5a6;">CVI = 0.4×학원 + 0.3×인구 + 0.3×스트레스 | 전국 {len(coords)}개 시군구</div>
+            <button id="toggle_panel_btn" onclick="toggleStatsPanel()" style="position:absolute;top:-2px;right:-5px;
+                background:#f1f2f6;border:none;border-radius:20px;padding:4px 10px;cursor:pointer;
+                font-size:10px;font-weight:700;color:#57606f;outline:none;transition:all 0.2s;">접기 ▲</button>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;">
-            <div style="background:#fff5f5;border:1.5px solid #ffd5d5;border-radius:10px;padding:8px;text-align:center;">
-                <div style="font-size:18px;font-weight:800;color:#e74c3c;">138k+</div>
-                <div style="font-size:8px;color:#999;">전국 학원</div>
+        <div id="stats_panel_content" style="transition: all 0.3s ease;">
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;">
+                <div style="background:#fff5f5;border:1.5px solid #ffd5d5;border-radius:10px;padding:8px;text-align:center;">
+                    <div style="font-size:18px;font-weight:800;color:#e74c3c;">138k+</div>
+                    <div style="font-size:8px;color:#999;">전국 학원</div>
+                </div>
+                <div style="background:#f0f7ff;border:1.5px solid #d5e8ff;border-radius:10px;padding:8px;text-align:center;">
+                    <div style="font-size:18px;font-weight:800;color:#2980b9;">{shelter_count}</div>
+                    <div style="font-size:8px;color:#999;">전국 쉼터</div>
+                </div>
+                <div style="background:#f0fff5;border:1.5px solid #d5ffe8;border-radius:10px;padding:8px;text-align:center;">
+                    <div style="font-size:18px;font-weight:800;color:#27ae60;">{len(coords)}</div>
+                    <div style="font-size:8px;color:#999;">분석 지역</div>
+                </div>
             </div>
-            <div style="background:#f0f7ff;border:1.5px solid #d5e8ff;border-radius:10px;padding:8px;text-align:center;">
-                <div style="font-size:18px;font-weight:800;color:#2980b9;">{shelter_count}</div>
-                <div style="font-size:8px;color:#999;">전국 쉼터</div>
+            <div style="font-size:9px;color:#95a5a6;margin-bottom:4px;">취약지수 (색상 범례)</div>
+            <div style="display:flex;border-radius:4px;overflow:hidden;margin-bottom:2px;height:10px;">{legend_bar}</div>
+            <div style="display:flex;justify-content:space-between;font-size:8px;color:#bdc3c7;margin-bottom:12px;">
+                <span>낮음</span><span>높음</span>
             </div>
-            <div style="background:#f0fff5;border:1.5px solid #d5ffe8;border-radius:10px;padding:8px;text-align:center;">
-                <div style="font-size:18px;font-weight:800;color:#27ae60;">{len(coords)}</div>
-                <div style="font-size:8px;color:#999;">분석 지역</div>
-            </div>
+            <div style="height:1px;background:#f0f0f4;margin-bottom:10px;"></div>
+            <table style="width:100%;border-collapse:collapse;">
+                <tr style="border-bottom:2px solid #f0f0f4;">
+                    <th style="padding:4px 3px;font-size:9px;color:#95a5a6;font-weight:500;text-align:left;">지역</th>
+                    <th style="padding:4px;font-size:9px;color:#2980b9;font-weight:500;text-align:right;">학원</th>
+                    <th style="padding:4px;font-size:9px;color:#e74c3c;font-weight:500;text-align:right;">스트레스</th>
+                    <th style="padding:4px;font-size:9px;color:#f39c12;font-weight:500;">CVI</th>
+                </tr>
+                {rows}
+            </table>
         </div>
-        <div style="font-size:9px;color:#95a5a6;margin-bottom:4px;">취약지수 (색상 범례)</div>
-        <div style="display:flex;border-radius:4px;overflow:hidden;margin-bottom:2px;height:10px;">{legend_bar}</div>
-        <div style="display:flex;justify-content:space-between;font-size:8px;color:#bdc3c7;margin-bottom:12px;">
-            <span>낮음</span><span>높음</span>
-        </div>
-        <div style="height:1px;background:#f0f0f4;margin-bottom:10px;"></div>
-        <table style="width:100%;border-collapse:collapse;">
-            <tr style="border-bottom:2px solid #f0f0f4;">
-                <th style="padding:4px 3px;font-size:9px;color:#95a5a6;font-weight:500;text-align:left;">지역</th>
-                <th style="padding:4px;font-size:9px;color:#2980b9;font-weight:500;text-align:right;">학원</th>
-                <th style="padding:4px;font-size:9px;color:#e74c3c;font-weight:500;text-align:right;">스트레스</th>
-                <th style="padding:4px;font-size:9px;color:#f39c12;font-weight:500;">CVI</th>
-            </tr>
-            {rows}
-        </table>
-    </div>"""
+    </div>
+    
+    <script>
+        function toggleStatsPanel() {{
+            var content = document.getElementById('stats_panel_content');
+            var btn = document.getElementById('toggle_panel_btn');
+            if (content.style.display === 'none') {{
+                content.style.display = 'block';
+                btn.innerHTML = '접기 ▲';
+            }} else {{
+                content.style.display = 'none';
+                btn.innerHTML = '펼치기 ▼';
+            }}
+        }}
+    </script>
+    """
     m.get_root().html.add_child(folium.Element(panel))
 
     out = "results/nationwide_analysis.html"
