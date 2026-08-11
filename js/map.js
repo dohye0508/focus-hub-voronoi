@@ -72,6 +72,16 @@ const MapModule = (function() {
 
         L.geoJSON(geojson, {
             pointToLayer: function(feature, latlng) {
+                // 2km coverage circle (approx 30 mins walk)
+                L.circle(latlng, {
+                    radius: 2000,
+                    color: '#10b981',
+                    fillColor: '#10b981',
+                    fillOpacity: 0.05,
+                    weight: 1,
+                    dashArray: '4'
+                }).addTo(sheltersLayerGroup);
+                
                 return L.marker(latlng, {icon: customIcon});
             },
             onEachFeature: function(feature, layer) {
@@ -80,7 +90,7 @@ const MapModule = (function() {
         }).addTo(sheltersLayerGroup);
     }
 
-    function renderOptimizedSites(centers) {
+    function renderOptimizedSites(centers, cellsData, existingShelters) {
         optLayerGroup.clearLayers();
         
         const starIcon = L.divIcon({
@@ -89,7 +99,56 @@ const MapModule = (function() {
             className: 'opt-icon'
         });
 
+        // 1. Draw connecting lines (Spider web) from cells to nearest centers
+        if (cellsData) {
+            cellsData.forEach(cell => {
+                const pLat = cell.properties.centroid[1];
+                const pLng = cell.properties.centroid[0];
+                
+                let minDist = Infinity;
+                let nearestLat = 0;
+                let nearestLng = 0;
+                
+                // Check existing
+                if (existingShelters) {
+                    existingShelters.forEach(s => {
+                        const sLat = s.geometry.coordinates[1];
+                        const sLng = s.geometry.coordinates[0];
+                        const d = OptModule.calcDistKm(pLat, pLng, sLat, sLng);
+                        if (d < minDist) { minDist = d; nearestLat = sLat; nearestLng = sLng; }
+                    });
+                }
+                
+                // Check new centers
+                centers.forEach(c => {
+                    const d = OptModule.calcDistKm(pLat, pLng, c.lat, c.lng);
+                    if (d < minDist) { minDist = d; nearestLat = c.lat; nearestLng = c.lng; }
+                });
+                
+                // If it is covered (e.g. within 5km for visual clarity), draw a faint line
+                if (minDist <= 5.0) {
+                    L.polyline([[pLat, pLng], [nearestLat, nearestLng]], {
+                        color: 'rgba(255, 255, 255, 0.15)',
+                        weight: 1,
+                        dashArray: '2, 4'
+                    }).addTo(optLayerGroup);
+                }
+            });
+        }
+
+        // 2. Draw new centers and their coverage circles
         centers.forEach(c => {
+            // Coverage circle
+            L.circle([c.lat, c.lng], {
+                radius: 2000, // 2km
+                color: '#f59e0b',
+                fillColor: '#f59e0b',
+                fillOpacity: 0.1,
+                weight: 1,
+                dashArray: '4'
+            }).addTo(optLayerGroup);
+            
+            // Marker
             L.marker([c.lat, c.lng], {icon: starIcon, zIndexOffset: 1000})
              .bindTooltip('<b>새로운 이동형 쉼터 추천 위치</b>')
              .addTo(optLayerGroup);

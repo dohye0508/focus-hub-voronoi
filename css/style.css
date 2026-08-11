@@ -46,11 +46,9 @@ body, html {
 
 /* Top Dashboard */
 .top-panel {
-    top: 12px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 90%;
-    max-width: 500px;
+    top: 20px;
+    left: 20px;
+    width: 350px;
 }
 
 .panel-header {
@@ -102,11 +100,9 @@ body, html {
 
 /* Bottom Controls */
 .bottom-panel {
-    bottom: 20px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 90%;
-    max-width: 500px;
+    bottom: 30px;
+    left: 20px;
+    width: 350px;
 }
 
 .control-group {

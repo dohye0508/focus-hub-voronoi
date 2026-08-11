@@ -55,7 +55,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             lambda
         );
         
-        MapModule.renderOptimizedSites(result.centers);
+        MapModule.renderOptimizedSites(result.centers, cellsGeojson.features, sheltersGeojson.features);
         
         // Update Dashboard
         coverageProgress.style.width = `${result.newCoverage}%`;
