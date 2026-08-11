@@ -1,0 +1,15 @@
+# Large data files
+*.csv
+*.xls
+*.xlsx
+*.shp
+*.shx
+*.dbf
+*.prj
+
+# Python
+__pycache__/
+*.pyc
+
+# Temp
+results/temp_out.txt
