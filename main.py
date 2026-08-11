@@ -555,11 +555,11 @@ def build_map():
         legend_bar += f'<div style="flex:1;background:{c};height:10px;"></div>'
 
     panel = f"""
-    <div id="stats_panel" style="position:fixed;top:15px;left:60px;z-index:1000;
+    <div id="stats_panel" style="position:fixed;top:15px;left:50%;transform:translateX(-50%);z-index:1000;
         background:rgba(255,255,255,0.97);backdrop-filter:blur(12px);
         border-radius:16px;padding:18px 20px;
         box-shadow:0 6px 28px rgba(0,0,0,0.13),0 0 0 1px rgba(0,0,0,0.05);
-        font-family:'Noto Sans KR',sans-serif;width:360px;transition: all 0.3s ease;">
+        font-family:'Noto Sans KR',sans-serif;width:90%;max-width:360px;transition: all 0.3s ease;">
         <div style="margin-bottom:14px;position:relative;">
             <div style="font-size:14px;font-weight:800;color:#2d3436;padding-right:50px;">전국 청소년 복지 취약지수</div>
             <div style="font-size:9px;color:#95a5a6;">CVI = 0.4×학원 + 0.3×인구 + 0.3×스트레스 | 전국 {len(coords)}개 시군구</div>
@@ -616,9 +616,24 @@ def build_map():
     """
     m.get_root().html.add_child(folium.Element(panel))
 
+    # PWA Meta Tags (Mobile optimization)
+    pwa_meta = """
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="/icon.png">
+    <style>
+        html, body { overflow: hidden; width: 100%; height: 100%; margin: 0; padding: 0; }
+        .leaflet-container { touch-action: pan-x pan-y; }
+    </style>
+    """
+    m.get_root().header.add_child(folium.Element(pwa_meta))
+
     out = "results/nationwide_analysis.html"
     m.save(out)
-    print(f"\n[DONE] Saved {out} | Shelters:{shelter_count} | Regions:{len(coords)}")
+    m.save("index.html")
+    print(f"\n[DONE] Saved {out} and index.html | Shelters:{shelter_count} | Regions:{len(coords)}")
 
 if __name__ == "__main__":
     build_map()
