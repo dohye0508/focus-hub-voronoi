@@ -3,15 +3,16 @@ import sys
 import json
 import numpy as np
 import pandas as pd
-from scipy.spatial import Voronoi
+from shapely.geometry import Polygon, Point
+from scipy.spatial import Voronoi, ConvexHull
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import MinMaxScaler
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 try:
-    from main import load_academies, load_stress, load_population, load_shelters, get_coords
+    from scripts.data_loader import load_academies, load_stress, load_population, load_shelters, get_coords
 except ImportError:
-    print("Error: Could not import data loaders from main.py")
+    print("Error: Could not import data loaders from scripts/data_loader.py")
     sys.exit(1)
 
 def export_data():
@@ -86,24 +87,33 @@ def export_data():
     pop_dict = dict(zip(df['region'], df['population']))
     acad_dict = dict(zip(df['region'], df['academy']))
     
-    # 3. 보로노이 다이어그램 생성 (main.py 로직 복제)
+    # 3. 보로노이 다이어그램 생성
     seeds = []
     seed_regs = []
     for reg, (la, lo) in coords.items():
-        seeds.append((lo + np.random.uniform(-0.001, 0.001),
-                       la + np.random.uniform(-0.001, 0.001)))
+        seeds.append((lo, la))
         seed_regs.append(reg)
     seeds = np.array(seeds)
+    
+    # 볼록 껍질(Convex Hull)을 생성하여 보로노이 클리핑에 사용 (버퍼 추가)
+    try:
+        hull = ConvexHull(seeds)
+        hull_polygon = Polygon(seeds[hull.vertices]).buffer(0.05) # 약 5km 버퍼
+    except Exception as e:
+        hull_polygon = None
+        print("Warning: Could not create convex hull:", e)
 
-    KOR_LAT = (33.0, 38.7)
-    KOR_LON = (124.5, 130.0)
+    # 무한 확장을 막기 위한 가상 바운더리 포인트 추가
+    lat_min, lat_max = np.min(seeds[:, 1]), np.max(seeds[:, 1])
+    lon_min, lon_max = np.min(seeds[:, 0]), np.max(seeds[:, 0])
+    
     bdry = []
-    for la in np.linspace(KOR_LAT[0]-1, KOR_LAT[1]+1, 40):
-        bdry.append([KOR_LON[0]-1, la])
-        bdry.append([KOR_LON[1]+1, la])
-    for lo in np.linspace(KOR_LON[0]-1, KOR_LON[1]+1, 40):
-        bdry.append([lo, KOR_LAT[0]-1])
-        bdry.append([lo, KOR_LAT[1]+1])
+    for la in np.linspace(lat_min - 1, lat_max + 1, 10):
+        bdry.append([lon_min - 1, la])
+        bdry.append([lon_max + 1, la])
+    for lo in np.linspace(lon_min - 1, lon_max + 1, 10):
+        bdry.append([lo, lat_min - 1])
+        bdry.append([lo, lat_max + 1])
     bdry = np.array(bdry)
 
     all_pts = np.vstack([seeds, bdry])
@@ -117,10 +127,25 @@ def export_data():
             continue
         verts = [vor.vertices[j] for j in region_idx]
         
-        cx = np.mean([v[0] for v in verts])
-        cy = np.mean([v[1] for v in verts])
-        if not (KOR_LON[0] <= cx <= KOR_LON[1] and KOR_LAT[0] <= cy <= KOR_LAT[1]):
+        poly = Polygon(verts)
+        if not poly.is_valid:
+            poly = poly.buffer(0)
+            
+        # 볼록 껍질로 클리핑하여 바다나 북한으로 뻗어나가는 것을 방지
+        if hull_polygon:
+            poly = poly.intersection(hull_polygon)
+            
+        if poly.is_empty:
             continue
+            
+        # MultiPolygon이 될 경우를 대비해 가장 큰 Polygon만 사용
+        if poly.geom_type == 'MultiPolygon':
+            poly = max(poly.geoms, key=lambda a: a.area)
+            
+        # 외곽 좌표 추출
+        clipped_coords = list(poly.exterior.coords)
+        cx = poly.centroid.x
+        cy = poly.centroid.y
             
         reg = seed_regs[i]
         cvi = cvi_dict.get(reg, 0)
@@ -131,7 +156,7 @@ def export_data():
             "type": "Feature",
             "geometry": {
                 "type": "Polygon",
-                "coordinates": [[[float(v[0]), float(v[1])] for v in verts]]
+                "coordinates": [[[float(v[0]), float(v[1])] for v in clipped_coords]]
             },
             "properties": {
                 "region": reg,
