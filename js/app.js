@@ -39,20 +39,26 @@ document.addEventListener('DOMContentLoaded', async () => {
     // State
     let cellsGeojson = null;
     let sheltersGeojson = null;
+    let mobileRoutesData = null;
     let currentMode = 'start'; // 'start', 'youth', 'admin'
+    
+    let activeRoute = null; // Current selected mobile route
+    let activeDay = null;   // Current active day filter (e.g. 'MON')
     
     // Init Map
     MapModule.init();
     
     // Fetch Data
     try {
-        const [cellsRes, sheltersRes] = await Promise.all([
+        const [cellsRes, sheltersRes, routesRes] = await Promise.all([
             fetch('public/data/cells.json'),
-            fetch('public/data/shelters.json')
+            fetch('public/data/shelters.json'),
+            fetch('public/data/mobile_routes.json')
         ]);
         
         cellsGeojson = await cellsRes.json();
         sheltersGeojson = await sheltersRes.json();
+        mobileRoutesData = await routesRes.json();
         
         MapModule.renderCells(cellsGeojson);
         MapModule.renderShelters(sheltersGeojson);
@@ -78,13 +84,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         
         MapModule.renderOptimizedSites(result.centers, cellsGeojson.features, sheltersGeojson.features);
         
-        // 1. Update everyday stats (rounded to 1 decimal place or integer)
+        // Update everyday stats (rounded)
         metricCoverage.innerHTML = `<strong>${result.newCoverage.toFixed(1)}%</strong>`;
         metricMaxDist.innerHTML = `<strong>${Math.round(result.maxDistance)}km</strong>`;
         metricUncoveredCount.innerHTML = `<strong>${result.uncoveredCount}곳</strong>`;
         metricUncoveredNames.innerText = result.topUncoveredRegions.join(', ');
         
-        // 2. Calculate Extremes Comparison
+        // Calculate Extremes Comparison
         const effResult = OptModule.runOptimization(cellsGeojson.features, sheltersGeojson.features, p, 0.0);
         const eqResult = OptModule.runOptimization(cellsGeojson.features, sheltersGeojson.features, p, 1.0);
         
@@ -130,7 +136,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             coveragePanel.classList.remove('hidden');
             controlsPanel.classList.remove('hidden');
             youthPanel.classList.add('hidden');
-            MapModule.showCells(); // Show colored cells (analytical view)
+            MapModule.showCells(); // Show analytical view
             
             runOpt();
         }
@@ -177,95 +183,170 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     // --- Youth Mode Controller ---
     
-    // Render detail route cards for selected mobile shelter
-    function selectMobileShelter(shelter) {
-        const props = shelter.properties;
-        if (!props.is_mobile) return;
+    function checkIsNowHere(arrive, depart, stopDays) {
+        const now = new Date();
+        const day = now.getDay(); // 0 is Sunday, 1 is Monday...
+        const hour = now.getHours();
+        const minute = now.getMinutes();
+        const nowMin = hour * 60 + minute;
         
-        const coords = shelter.geometry.coordinates;
-        const schedule = props.schedule || [];
-        const isDummy = props.is_dummy === true;
+        const [aH, aM] = arrive.split(':').map(Number);
+        const arrMin = aH * 60 + aM;
+        const [dH, dM] = depart.split(':').map(Number);
+        let depMin = dH * 60 + dM;
+        
+        const dayNames = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+        const todayName = dayNames[day];
+        const yesterdayName = dayNames[day === 0 ? 6 : day - 1];
+        
+        if (depMin < arrMin) {
+            // Crosses midnight
+            if (nowMin < depMin && stopDays.includes(yesterdayName)) {
+                return true;
+            }
+            if (nowMin >= arrMin && stopDays.includes(todayName)) {
+                return true;
+            }
+        } else {
+            if (nowMin >= arrMin && nowMin < depMin && stopDays.includes(todayName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    function selectMobileRoute(shelterName) {
+        if (!mobileRoutesData) return;
+        const route = mobileRoutesData.shelters.find(r => r.shelter_name === shelterName);
+        if (!route) return;
+        
+        activeRoute = route;
+        
+        // Default day filter to today
+        const now = new Date();
+        const engDays = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+        activeDay = engDays[now.getDay()];
+        
+        // If today is Sunday (SUN) and not operating on SUN, show first operating day or just SUN
+        if (!route.operating_days.includes(activeDay) && route.operating_days.length > 0) {
+            // Default to first operating day instead of showing empty initially, or just keep Sunday to let them see empty message
+        }
+        
+        const feat = sheltersGeojson.features.find(f => f.properties.name === shelterName);
+        const phone = feat ? feat.properties.phone : '';
+        
+        updateRouteUI(phone);
+    }
+    
+    function updateRouteUI(phone) {
+        const route = activeRoute;
+        if (!route) return;
+        
+        const isDummy = route.is_dummy === true;
         
         let html = '';
         
+        // 1. Disclaimer Banner
         if (isDummy) {
             html += `
                 <div class="disclaimer-banner">
                     <i class="fa-solid fa-circle-info"></i>
-                    <span>예시 일정입니다. 실제 운행 정보는 기관에 확인하세요.</span>
+                    <div>
+                        예시 일정입니다. 실제 운행 정보는 해당 기관에 확인하세요.<br>
+                        <small>기관 연락처: ${phone || '연락처 없음'}</small>
+                    </div>
                 </div>
             `;
         }
         
-        // Check if currently operating today
-        const now = new Date();
-        const currentHour = now.getHours();
-        const currentDay = now.getDay(); // 0 is Sunday, 1 is Monday...
-        const korDayIndex = currentDay === 0 ? 6 : currentDay - 1; // Mon=0.. Sun=6
-        
-        let isCurrentlyOpen = false;
+        // 2. Day Filter Buttons
+        const engDays = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
+        const korDays = ["월", "화", "수", "목", "금", "토", "일"];
         
         html += `
-            <div class="schedule-card">
-                <div class="schedule-header">
-                    <i class="fa-solid fa-calendar-days"></i>
-                    <span>${props.name} 운행 경로 및 일정</span>
-                </div>
+            <div class="day-filter" style="display:flex; gap:6px; margin-bottom:14px; overflow-x:auto; padding-bottom:4px;">
         `;
-        
-        schedule.forEach((item, idx) => {
-            const isToday = idx === korDayIndex;
-            const isPast = idx < korDayIndex;
-            
-            let rowClass = '';
-            if (isToday) rowClass = 'today-highlight';
-            else if (isPast) rowClass = 'past-day';
-            
-            // Check if active today and current time falls inside 19:00 - 23:00
-            if (isToday && item.time) {
-                // Parse operating hours (assuming 19:00-23:00 dummy for testing, or generic format hh:mm)
-                // Default: 19:00 to 23:00
-                const startHour = 19;
-                const endHour = 23;
-                if (currentHour >= startHour && currentHour < endHour) {
-                    isCurrentlyOpen = true;
-                }
-            }
-            
+        engDays.forEach((day, idx) => {
+            const isActive = day === activeDay;
+            const btnClass = isActive ? "mode-btn active" : "mode-btn";
             html += `
-                <div class="schedule-row ${rowClass}">
-                    <span><b>${item.day}</b></span>
-                    <span>${item.location}</span>
-                    <span>${item.time || '운행 없음'}</span>
-                </div>
+                <button class="${btnClass}" style="flex:1; padding:8px 6px; font-size:0.75rem; font-weight:700;" onclick="window.onDayFilterClick('${day}')">
+                    ${korDays[idx]}
+                </button>
             `;
         });
+        html += `</div>`;
+        
+        // 3. Filtered stops for activeDay
+        const filteredStops = route.stops.filter(stop => stop.days.includes(activeDay));
+        
+        html += `<div class="stops-list-container" style="display:flex; flex-direction:column; gap:10px;">`;
+        
+        if (filteredStops.length === 0) {
+            html += `
+                <div class="empty-state" style="padding:30px 0; font-size:0.8rem;">
+                    이 요일에는 운행하지 않습니다.
+                </div>
+            `;
+            MapModule.clearMobileStops();
+        } else {
+            // Sort stops by order
+            filteredStops.sort((a, b) => a.order - b.order);
+            
+            filteredStops.forEach(stop => {
+                const isNowHere = checkIsNowHere(stop.arrive, stop.depart, stop.days);
+                stop.isNowHere = isNowHere; // Pass flag to map stops renderer
+                
+                const cardHighlightStyle = isNowHere ? "style='border-color: #6366f1; background: rgba(99, 102, 241, 0.06);'" : "";
+                const nowHereBadge = isNowHere ? "<span class='status-badge open-badge' style='margin-left:8px; font-size:0.65rem;'>지금 여기</span>" : "";
+                
+                // Format days label: e.g. "월·수·금"
+                const daysLabel = stop.days.map(d => {
+                    const mapDaysIdx = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"].indexOf(d);
+                    return ["월", "화", "수", "목", "금", "토", "일"][mapDaysIdx];
+                }).join('·');
+                
+                html += `
+                    <div class="shelter-card" ${cardHighlightStyle} style="cursor:pointer; padding:12px 16px;" onclick="window.onStopClick(${stop.lat}, ${stop.lng})">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <span style="font-weight:700; font-size:0.85rem; color:#fff;">
+                                ${stop.order}. ${stop.name} ${nowHereBadge}
+                            </span>
+                        </div>
+                        <div style="font-size:0.75rem; color:var(--text-secondary); margin-top:4px;">
+                            운행 요일: ${daysLabel} | 시간: ${stop.arrive} – ${stop.depart}
+                        </div>
+                    </div>
+                `;
+            });
+            
+            // Draw Route & Stops on Map
+            MapModule.renderRouteStops(filteredStops);
+        }
         
         html += `</div>`;
         
-        // Show status banner if open
-        if (isCurrentlyOpen) {
-            html = `
-                <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); color: #34d399; padding: 10px 12px; border-radius: 8px; font-size: 0.8rem; font-weight: 700; margin-bottom: 12px; text-align: center;">
-                    <i class="fa-solid fa-circle-check"></i> 지금 운영 중
-                </div>
-            ` + html;
-        }
-        
         youthMobileRouteContainer.innerHTML = html;
         youthMobileRouteContainer.classList.remove('hidden');
-        
-        // Scroll to schedule card
         youthMobileRouteContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        
-        // Render stops and connections on Map
-        MapModule.renderMobileStops(coords[1], coords[0], schedule, props.name);
     }
+    
+    // Global window mappings for inner HTML event bindings
+    window.onDayFilterClick = function(day) {
+        activeDay = day;
+        const feat = sheltersGeojson.features.find(f => f.properties.name === activeRoute.shelter_name);
+        const phone = feat ? feat.properties.phone : '';
+        updateRouteUI(phone);
+    };
+    
+    window.onStopClick = function(lat, lng) {
+        MapModule.getMap().flyTo([lat, lng], 15);
+    };
     
     // Register global click handler to coordinate with Leaflet clicks
     window.onShelterClick = function(feature) {
         if (currentMode === 'youth' && feature.properties.is_mobile) {
-            selectMobileShelter(feature);
+            selectMobileRoute(feature.properties.name);
         }
     };
     
@@ -313,6 +394,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const walkTime = Math.round((s.distKm / 4) * 60); // 4km/h walking
                 const isMobile = s.lat !== undefined; // Check mobile context
                 
+                // Determine if there is route data for this shelter
+                const hasRoute = mobileRoutesData && mobileRoutesData.shelters.some(r => r.shelter_name === s.name);
+                
                 // Determine open status based on hours
                 const charCodeSum = s.name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
                 const is24h = charCodeSum % 2 === 0;
@@ -334,7 +418,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const routeUrl = `https://map.kakao.com/link/to/${encodeURIComponent(s.name)},${s.lat},${s.lng}`;
                 
                 html += `
-                    <div class="shelter-card ${cardClass}" id="card-${s.name.replace(/\s+/g, '')}">
+                    <div class="shelter-card ${cardClass}" id="card-${s.name.replace(/\s+/g, '')}" style="cursor:pointer;">
                         <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                             <span class="distance-badge">${s.distKm.toFixed(1)}km · 도보 ${walkTime}분</span>
                             <span class="status-badge ${statusClass}">${statusText}</span>
@@ -345,8 +429,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                         <div class="shelter-info"><i class="fa-solid fa-phone"></i> ${s.phone || '연락처 없음'}</div>
                         
                         <div class="shelter-actions">
-                            ${s.phone ? `<a href="tel:${s.phone}" class="card-action-btn"><i class="fa-solid fa-phone"></i> 전화 걸기</a>` : ''}
-                            <a href="${routeUrl}" target="_blank" class="card-action-btn accent-action"><i class="fa-solid fa-map-location-dot"></i> 길찾기</a>
+                            ${s.phone ? `<a href="tel:${s.phone}" class="card-action-btn" onclick="event.stopPropagation();"><i class="fa-solid fa-phone"></i> 전화</a>` : ''}
+                            <a href="${routeUrl}" target="_blank" class="card-action-btn accent-action" onclick="event.stopPropagation();"><i class="fa-solid fa-map-location-dot"></i> 길찾기</a>
+                            ${hasRoute ? `<button class="card-action-btn route-view-btn" data-name="${s.name}" onclick="event.stopPropagation(); window.onRouteViewClick('${s.name}')"><i class="fa-solid fa-route"></i> 노선 보기</button>` : ''}
                         </div>
                     </div>
                 `;
@@ -355,22 +440,28 @@ document.addEventListener('DOMContentLoaded', async () => {
         
         youthResultsContainer.innerHTML = html;
         
-        // Attach click listeners to cards to simulate marker click for mobile schedule
+        // Attach click listeners to cards to pan to shelter marker
         if (data.shelters.length > 0) {
             data.shelters.forEach(s => {
                 const cardEl = document.getElementById(`card-${s.name.replace(/\s+/g, '')}`);
                 if (cardEl) {
                     cardEl.addEventListener('click', () => {
-                        // Find full feature in geojson
+                        MapModule.getMap().flyTo([s.lat, s.lng], 14);
+                        // Also auto-select route if mobile
                         const feat = sheltersGeojson.features.find(f => f.properties.name === s.name);
                         if (feat && feat.properties.is_mobile) {
-                            selectMobileShelter(feat);
+                            selectMobileRoute(s.name);
                         }
                     });
                 }
             });
         }
     }
+    
+    // Action handler for "노선 보기" button click
+    window.onRouteViewClick = function(name) {
+        selectMobileRoute(name);
+    };
     
     // GPS button Youth Mode
     youthGpsBtn.addEventListener('click', () => {

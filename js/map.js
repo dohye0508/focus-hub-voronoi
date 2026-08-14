@@ -103,40 +103,44 @@ const MapModule = (function() {
         }).addTo(sheltersLayerGroup);
     }
 
-    function renderMobileStops(shelterLat, shelterLng, schedule, name) {
+    function renderRouteStops(stops) {
         mobileStopsLayerGroup.clearLayers();
+        if (!stops || stops.length === 0) return;
         
-        const today = new Date().getDay(); // 0 is Sunday, 1 is Monday...
-        const korDayIndex = today === 0 ? 6 : today - 1; // Mon is 0, Tue is 1... Sun is 6
+        const latlngs = [];
         
-        schedule.forEach((stop, idx) => {
-            if (idx === 6) return; // Skip Sunday (usually no run)
+        stops.forEach((stop) => {
+            const latlng = [stop.lat, stop.lng];
+            latlngs.push(latlng);
             
-            // Deterministic offsets around base lat/lng for visualization
-            const angle = (idx * 2 * Math.PI) / 6;
-            const r = 0.004; // ~400m
-            const stopLat = shelterLat + r * Math.sin(angle);
-            const stopLng = shelterLng + r * Math.cos(angle);
+            const isNowHere = stop.isNowHere === true;
             
-            const isToday = idx === korDayIndex;
-            
-            const stopIcon = L.divIcon({
-                html: `<div style="width:${isToday ? 20 : 14}px;height:${isToday ? 20 : 14}px;background:${isToday ? '#6366f1' : '#475569'};border-radius:50%;border:2px solid #fff;box-shadow:0 0 10px rgba(99,102,241,0.6);display:flex;align-items:center;justify-content:center;color:#fff;font-size:9px;font-weight:700;line-height:1;">${stop.day[0]}</div>`,
-                iconSize: isToday ? [20, 20] : [14, 14],
-                className: 'mobile-stop-icon'
+            const numIcon = L.divIcon({
+                html: `<div style="width:${isNowHere ? 22 : 16}px;height:${isNowHere ? 22 : 16}px;background:${isNowHere ? '#6366f1' : '#475569'};border-radius:50%;border:2px solid #fff;box-shadow:0 0 10px rgba(99,102,241,0.6);display:flex;align-items:center;justify-content:center;color:#fff;font-size:${isNowHere ? 10 : 8}px;font-weight:700;">${stop.order}</div>`,
+                iconSize: isNowHere ? [22, 22] : [16, 16],
+                className: 'mobile-stop-marker'
             });
             
-            L.marker([stopLat, stopLng], {icon: stopIcon})
-                .bindTooltip(`<b>${name} (${stop.day} 정차지)</b><br>위치: ${stop.location}<br>시간: ${stop.time || '운행안함'}`)
+            L.marker(latlng, {icon: numIcon})
+                .bindTooltip(`<b>${stop.order}. ${stop.name}</b><br>운행일: ${stop.days.join(', ')}<br>시간: ${stop.arrive} ~ ${stop.depart}${isNowHere ? ' <b style="color:#a5b4fc;">[지금 여기]</b>' : ''}`)
                 .addTo(mobileStopsLayerGroup);
-                
-            // Draw route connection line
-            L.polyline([[shelterLat, shelterLng], [stopLat, stopLng]], {
-                color: isToday ? 'rgba(99, 102, 241, 0.7)' : 'rgba(148, 163, 184, 0.25)',
-                weight: isToday ? 2.5 : 1.5,
-                dashArray: '3, 4'
-            }).addTo(mobileStopsLayerGroup);
         });
+        
+        // Draw polyline connecting stops
+        if (latlngs.length > 1) {
+            L.polyline(latlngs, {
+                color: '#6366f1',
+                weight: 3,
+                opacity: 0.85,
+                dashArray: '4, 6'
+            }).addTo(mobileStopsLayerGroup);
+        }
+        
+        // Fit map bounds to show route
+        if (latlngs.length > 0) {
+            const bounds = L.latLngBounds(latlngs);
+            map.fitBounds(bounds, {padding: [50, 50]});
+        }
     }
 
     function clearMobileStops() {
@@ -219,7 +223,7 @@ const MapModule = (function() {
         init: initMap,
         renderCells,
         renderShelters,
-        renderMobileStops,
+        renderRouteStops,
         clearMobileStops,
         renderOptimizedSites,
         showCells: () => { if(map && cellsLayerGroup) map.addLayer(cellsLayerGroup); },

@@ -1,0 +1,694 @@
+{
+  "version": "1.0",
+  "shelters": [
+    {
+      "shelter_id": "MOB-001",
+      "shelter_name": "서울시립일시청소년쉼터(이동형, 서북)",
+      "is_dummy": true,
+      "operating_days": [
+        "FRI",
+        "MON",
+        "THU",
+        "TUE",
+        "WED"
+      ],
+      "stops": [
+        {
+          "order": 1,
+          "name": "신촌역 2번 출구",
+          "lat": 37.57490845144351,
+          "lng": 126.98140394137391,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "MON",
+            "WED"
+          ]
+        },
+        {
+          "order": 2,
+          "name": "홍대입구역 9번 출구",
+          "lat": 37.56690845144352,
+          "lng": 126.98940394137392,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "TUE",
+            "THU"
+          ]
+        },
+        {
+          "order": 3,
+          "name": "상암월드컵경기장 앞",
+          "lat": 37.56290845144351,
+          "lng": 126.97740394137392,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "FRI"
+          ]
+        }
+      ]
+    },
+    {
+      "shelter_id": "MOB-002",
+      "shelter_name": "서울시립일시청소년쉼터(이동형, 서남)",
+      "is_dummy": true,
+      "operating_days": [
+        "FRI",
+        "MON",
+        "THU",
+        "TUE",
+        "WED"
+      ],
+      "stops": [
+        {
+          "order": 1,
+          "name": "신림역 3번 출구",
+          "lat": 37.573908451443515,
+          "lng": 126.98240394137392,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "MON",
+            "WED"
+          ]
+        },
+        {
+          "order": 2,
+          "name": "영등포역 광장",
+          "lat": 37.567908451443515,
+          "lng": 126.98840394137392,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "TUE",
+            "THU"
+          ]
+        },
+        {
+          "order": 3,
+          "name": "대림역 1번 출구",
+          "lat": 37.564908451443515,
+          "lng": 126.97940394137392,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "FRI"
+          ]
+        }
+      ]
+    },
+    {
+      "shelter_id": "MOB-003",
+      "shelter_name": "제주시일시청소년쉼터(이동형, 버프)",
+      "is_dummy": true,
+      "operating_days": [
+        "FRI",
+        "MON",
+        "THU",
+        "TUE",
+        "WED"
+      ],
+      "stops": [
+        {
+          "order": 1,
+          "name": "제주시청 어울림마당",
+          "lat": 33.49621880533135,
+          "lng": 126.53975851252027,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "MON",
+            "WED"
+          ]
+        },
+        {
+          "order": 2,
+          "name": "신제주 제원아파트 앞",
+          "lat": 33.48821880533136,
+          "lng": 126.54775851252028,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "TUE",
+            "THU"
+          ]
+        },
+        {
+          "order": 3,
+          "name": "탑동광장 주차장",
+          "lat": 33.498218805331355,
+          "lng": 126.54975851252027,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "FRI"
+          ]
+        }
+      ]
+    },
+    {
+      "shelter_id": "MOB-004",
+      "shelter_name": "부산광역시일시청소년쉼터(이동형)",
+      "is_dummy": true,
+      "operating_days": [
+        "FRI",
+        "MON",
+        "THU",
+        "TUE",
+        "WED"
+      ],
+      "stops": [
+        {
+          "order": 1,
+          "name": "사직야구장 앞",
+          "lat": 35.18608314108871,
+          "lng": 128.97994264709536,
+          "arrive": "19:00",
+          "depart": "20:30",
+          "days": [
+            "MON",
+            "WED",
+            "FRI"
+          ]
+        },
+        {
+          "order": 2,
+          "name": "서면 놀이마루 후문 주차장",
+          "lat": 35.176083141088704,
+          "lng": 128.98994264709535,
+          "arrive": "21:00",
+          "depart": "23:00",
+          "days": [
+            "MON",
+            "WED",
+            "FRI"
+          ]
+        },
+        {
+          "order": 3,
+          "name": "화명동 북부경찰서 옆",
+          "lat": 35.1730831410887,
+          "lng": 128.97694264709534,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "TUE",
+            "THU"
+          ]
+        }
+      ]
+    },
+    {
+      "shelter_id": "MOB-005",
+      "shelter_name": "서울시립일시청소년쉼터(이동형, 동북)",
+      "is_dummy": true,
+      "operating_days": [
+        "FRI",
+        "MON",
+        "THU",
+        "TUE",
+        "WED"
+      ],
+      "stops": [
+        {
+          "order": 1,
+          "name": "노원역 1번 출구",
+          "lat": 37.5271681977205,
+          "lng": 127.12791724318221,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "MON",
+            "WED"
+          ]
+        },
+        {
+          "order": 2,
+          "name": "건대입구역 2번 출구",
+          "lat": 37.519168197720504,
+          "lng": 127.13591724318222,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "TUE",
+            "THU"
+          ]
+        },
+        {
+          "order": 3,
+          "name": "수유역 강북구청 앞",
+          "lat": 37.5151681977205,
+          "lng": 127.12391724318222,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "FRI"
+          ]
+        }
+      ]
+    },
+    {
+      "shelter_id": "MOB-006",
+      "shelter_name": "대구광역시일시청소년쉼터(이동형)",
+      "is_dummy": true,
+      "operating_days": [
+        "FRI",
+        "MON",
+        "THU",
+        "TUE",
+        "WED"
+      ],
+      "stops": [
+        {
+          "order": 1,
+          "name": "동성로 야외무대 앞",
+          "lat": 35.87389854790754,
+          "lng": 128.58604488558882,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "MON",
+            "WED"
+          ]
+        },
+        {
+          "order": 2,
+          "name": "두류공원 야외음악당",
+          "lat": 35.86589854790754,
+          "lng": 128.5940448855888,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "TUE",
+            "THU"
+          ]
+        },
+        {
+          "order": 3,
+          "name": "시지광장",
+          "lat": 35.87789854790754,
+          "lng": 128.59804488558882,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "FRI"
+          ]
+        }
+      ]
+    },
+    {
+      "shelter_id": "MOB-007",
+      "shelter_name": "인천시일시청소년쉼터(이동형)",
+      "is_dummy": true,
+      "operating_days": [
+        "FRI",
+        "MON",
+        "THU",
+        "TUE",
+        "WED"
+      ],
+      "stops": [
+        {
+          "order": 1,
+          "name": "부평역 광장",
+          "lat": 37.478733603639846,
+          "lng": 126.70557039561587,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "MON",
+            "WED"
+          ]
+        },
+        {
+          "order": 2,
+          "name": "구월동 로데오거리",
+          "lat": 37.47073360363985,
+          "lng": 126.71357039561587,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "TUE",
+            "THU"
+          ]
+        },
+        {
+          "order": 3,
+          "name": "주안역 남부광장",
+          "lat": 37.466733603639845,
+          "lng": 126.70157039561587,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "FRI"
+          ]
+        }
+      ]
+    },
+    {
+      "shelter_id": "MOB-008",
+      "shelter_name": "서울시립일시청소년쉼터(이동형, 동남)",
+      "is_dummy": true,
+      "operating_days": [
+        "FRI",
+        "MON",
+        "THU",
+        "TUE",
+        "WED"
+      ],
+      "stops": [
+        {
+          "order": 1,
+          "name": "천호역 5번 출구",
+          "lat": 37.5271681977205,
+          "lng": 127.12791724318221,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "MON",
+            "WED"
+          ]
+        },
+        {
+          "order": 2,
+          "name": "잠실역 8번 출구",
+          "lat": 37.519168197720504,
+          "lng": 127.13591724318222,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "TUE",
+            "THU"
+          ]
+        },
+        {
+          "order": 3,
+          "name": "강남역 11번 출구",
+          "lat": 37.5151681977205,
+          "lng": 127.12391724318222,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "FRI"
+          ]
+        }
+      ]
+    },
+    {
+      "shelter_id": "MOB-009",
+      "shelter_name": "광주광역시일시청소년쉼터(이동형)",
+      "is_dummy": true,
+      "operating_days": [
+        "FRI",
+        "MON",
+        "THU",
+        "TUE",
+        "WED"
+      ],
+      "stops": [
+        {
+          "order": 1,
+          "name": "충장로 우체국 앞",
+          "lat": 35.1430179004932,
+          "lng": 126.90996287515914,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "MON",
+            "WED"
+          ]
+        },
+        {
+          "order": 2,
+          "name": "광주 유스퀘어 광장",
+          "lat": 35.1350179004932,
+          "lng": 126.91796287515915,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "TUE",
+            "THU"
+          ]
+        },
+        {
+          "order": 3,
+          "name": "수완지구 호수공원",
+          "lat": 35.1470179004932,
+          "lng": 126.92196287515914,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "FRI"
+          ]
+        }
+      ]
+    },
+    {
+      "shelter_id": "MOB-010",
+      "shelter_name": "대전광역시일시청소년쉼터(이동형)",
+      "is_dummy": true,
+      "operating_days": [
+        "FRI",
+        "MON",
+        "THU",
+        "TUE",
+        "WED"
+      ],
+      "stops": [
+        {
+          "order": 1,
+          "name": "은행동 으능정이거리",
+          "lat": 36.328917280547984,
+          "lng": 127.39021930323403,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "MON",
+            "WED"
+          ]
+        },
+        {
+          "order": 2,
+          "name": "둔산동 타임월드 앞",
+          "lat": 36.32091728054799,
+          "lng": 127.39821930323404,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "TUE",
+            "THU"
+          ]
+        },
+        {
+          "order": 3,
+          "name": "유성온천역 공원",
+          "lat": 36.31691728054798,
+          "lng": 127.38621930323404,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "FRI"
+          ]
+        }
+      ]
+    },
+    {
+      "shelter_id": "MOB-011",
+      "shelter_name": "김포시일시청소년쉼터(이동형)",
+      "is_dummy": true,
+      "operating_days": [
+        "FRI",
+        "MON",
+        "THU",
+        "TUE",
+        "WED"
+      ],
+      "stops": [
+        {
+          "order": 1,
+          "name": "구래역 공원",
+          "lat": 37.64232342302763,
+          "lng": 126.7023954257093,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "MON",
+            "WED"
+          ]
+        },
+        {
+          "order": 2,
+          "name": "사우광장",
+          "lat": 37.63432342302763,
+          "lng": 126.71039542570931,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "TUE",
+            "THU"
+          ]
+        },
+        {
+          "order": 3,
+          "name": "장기동 상가 주차장",
+          "lat": 37.630323423027626,
+          "lng": 126.69839542570931,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "FRI"
+          ]
+        }
+      ]
+    },
+    {
+      "shelter_id": "MOB-012",
+      "shelter_name": "의정부시일시청소년쉼터(이동형)",
+      "is_dummy": true,
+      "operating_days": [
+        "FRI",
+        "MON",
+        "THU",
+        "TUE",
+        "WED"
+      ],
+      "stops": [
+        {
+          "order": 1,
+          "name": "의정부역 동부광장",
+          "lat": 37.752424903059875,
+          "lng": 127.03834607537219,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "MON",
+            "WED"
+          ]
+        },
+        {
+          "order": 2,
+          "name": "민락동 상업지구 광장",
+          "lat": 37.74442490305988,
+          "lng": 127.0463460753722,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "TUE",
+            "THU"
+          ]
+        },
+        {
+          "order": 3,
+          "name": "회룡역 앞",
+          "lat": 37.740424903059875,
+          "lng": 127.0343460753722,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "FRI"
+          ]
+        }
+      ]
+    },
+    {
+      "shelter_id": "MOB-013",
+      "shelter_name": "강원특별자치도일시청소년쉼터(이동형)",
+      "is_dummy": true,
+      "operating_days": [
+        "FRI",
+        "MON",
+        "THU",
+        "TUE",
+        "WED"
+      ],
+      "stops": [
+        {
+          "order": 1,
+          "name": "춘천 공지천 조각공원 주차장",
+          "lat": 37.90164178883076,
+          "lng": 127.75908749495889,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "MON",
+            "WED"
+          ]
+        },
+        {
+          "order": 2,
+          "name": "원주 따뚜공연장 주차장",
+          "lat": 37.89364178883076,
+          "lng": 127.7670874949589,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "TUE",
+            "THU"
+          ]
+        },
+        {
+          "order": 3,
+          "name": "강릉 경포대 주차장",
+          "lat": 37.90564178883076,
+          "lng": 127.77108749495889,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "FRI"
+          ]
+        }
+      ]
+    },
+    {
+      "shelter_id": "MOB-014",
+      "shelter_name": "청주시일시청소년쉼터(이동형)",
+      "is_dummy": true,
+      "operating_days": [
+        "FRI",
+        "MON",
+        "THU",
+        "TUE",
+        "WED"
+      ],
+      "stops": [
+        {
+          "order": 1,
+          "name": "성안길 철당간 광장",
+          "lat": 36.63474505788576,
+          "lng": 127.48839426740275,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "MON",
+            "WED"
+          ]
+        },
+        {
+          "order": 2,
+          "name": "충북대 정문 앞",
+          "lat": 36.62674505788576,
+          "lng": 127.49639426740276,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "TUE",
+            "THU"
+          ]
+        },
+        {
+          "order": 3,
+          "name": "복대동 지웰시티 광장",
+          "lat": 36.62274505788576,
+          "lng": 127.48439426740276,
+          "arrive": "19:00",
+          "depart": "23:00",
+          "days": [
+            "FRI"
+          ]
+        }
+      ]
+    }
+  ]
+}
