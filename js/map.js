@@ -5,6 +5,7 @@ const MapModule = (function() {
     let optLayerGroup;
     let mobileStopsLayerGroup; // Layer group for mobile route stops
     let cellsData = [];
+    let tileLayer;
     
     // HSL Color logic based on CVI
     function cviToColor(cvi) {
@@ -21,7 +22,7 @@ const MapModule = (function() {
         });
 
         // Dark mode tile layer (CartoDB Dark Matter)
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        tileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
             subdomains: 'abcd',
             maxZoom: 20
@@ -219,6 +220,20 @@ const MapModule = (function() {
         });
     }
 
+    function toggleTheme(isLight) {
+        if (map && tileLayer) {
+            map.removeLayer(tileLayer);
+        }
+        const url = isLight 
+            ? 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
+            : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+        tileLayer = L.tileLayer(url, {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+            subdomains: 'abcd',
+            maxZoom: 20
+        }).addTo(map);
+    }
+
     return {
         init: initMap,
         renderCells,
@@ -228,6 +243,7 @@ const MapModule = (function() {
         renderOptimizedSites,
         showCells: () => { if(map && cellsLayerGroup) map.addLayer(cellsLayerGroup); },
         hideCells: () => { if(map && cellsLayerGroup) map.removeLayer(cellsLayerGroup); },
+        toggleTheme,
         getMap: () => map
     };
 })();

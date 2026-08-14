@@ -242,22 +242,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const route = activeRoute;
         if (!route) return;
         
-        const isDummy = route.is_dummy === true;
-        
         let html = '';
-        
-        // 1. Disclaimer Banner
-        if (isDummy) {
-            html += `
-                <div class="disclaimer-banner">
-                    <i class="fa-solid fa-circle-info"></i>
-                    <div>
-                        예시 일정입니다. 실제 운행 정보는 해당 기관에 확인하세요.<br>
-                        <small>기관 연락처: ${phone || '연락처 없음'}</small>
-                    </div>
-                </div>
-            `;
-        }
         
         // 2. Day Filter Buttons
         const engDays = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
@@ -391,7 +376,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             `;
             
             data.shelters.forEach(s => {
-                const walkTime = Math.round((s.distKm / 4) * 60); // 4km/h walking
+                const driveTime = Math.max(1, Math.round((s.distKm / 30) * 60)); // 30km/h driving
                 const isMobile = s.is_mobile === true; // Check mobile context
                 
                 // Determine if there is route data for this shelter
@@ -420,7 +405,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 html += `
                     <div class="shelter-card ${cardClass}" id="card-${s.name.replace(/\s+/g, '')}" style="cursor:pointer;">
                         <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                            <span class="distance-badge">${s.distKm.toFixed(1)}km · 도보 ${walkTime}분</span>
+                            <span class="distance-badge">${s.distKm.toFixed(1)}km · 차량 ${driveTime}분</span>
                             <span class="status-badge ${statusClass}">${statusText}</span>
                         </div>
                         <div class="shelter-name">${s.name}</div>
@@ -525,5 +510,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     youthSearchBtn.addEventListener('click', handleYouthSearch);
     youthAddressInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') handleYouthSearch();
+    });
+
+    // Theme Toggle Binding
+    const themeToggleBtn = document.getElementById('theme-toggle');
+    themeToggleBtn.addEventListener('click', () => {
+        const body = document.body;
+        const isLight = body.classList.toggle('light-mode');
+        
+        // Toggle Icon
+        const icon = themeToggleBtn.querySelector('i');
+        if (isLight) {
+            icon.className = 'fa-solid fa-sun';
+        } else {
+            icon.className = 'fa-solid fa-moon';
+        }
+        
+        // Toggle Map Tiles
+        MapModule.toggleTheme(isLight);
     });
 });

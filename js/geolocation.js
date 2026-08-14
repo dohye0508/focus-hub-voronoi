@@ -80,10 +80,10 @@ const GeoModule = (function() {
             `;
             
             data.shelters.forEach(s => {
-                const walkTime = Math.round((s.distKm / 4) * 60); // 4km/h walking
+                const driveTime = Math.max(1, Math.round((s.distKm / 30) * 60)); // 30km/h driving
                 html += `
                     <div class="shelter-card">
-                        <div class="distance-badge">${s.distKm.toFixed(1)}km (도보 약 ${walkTime}분)</div>
+                        <div class="distance-badge">${s.distKm.toFixed(1)}km (차량 약 ${driveTime}분)</div>
                         <div class="shelter-name">${s.name}</div>
                         <div class="shelter-info"><i class="fa-solid fa-location-dot"></i> ${s.address}</div>
                         <div class="shelter-info"><i class="fa-solid fa-phone"></i> ${s.phone || '연락처 없음'}</div>

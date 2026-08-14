@@ -76,7 +76,7 @@ body, html {
     left: 20px;
     width: 380px;
     max-height: calc(100% - 320px);
-    overflow-y: auto;
+    overflow: hidden;
 }
 
 .bottom-panel {
@@ -707,4 +707,88 @@ body, html {
 
 .hidden {
     display: none !important;
+}
+
+/* Light Mode Theme Variables */
+body.light-mode {
+    --bg-color: #f8fafc;
+    --panel-bg: rgba(255, 255, 255, 0.88);
+    --panel-border: rgba(15, 23, 42, 0.08);
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #64748b;
+    --accent-color: #2563eb;
+    --accent-hover: #1d4ed8;
+    --card-bg: rgba(15, 23, 42, 0.04);
+}
+
+body.light-mode .glass-panel {
+    box-shadow: 0 12px 40px rgba(15, 23, 42, 0.08);
+}
+
+body.light-mode .divider {
+    background: rgba(15, 23, 42, 0.08);
+}
+
+body.light-mode .card-action-btn:not(.accent-action) {
+    background: rgba(15, 23, 42, 0.05);
+    color: #475569;
+    border-color: rgba(15, 23, 42, 0.08);
+}
+
+body.light-mode .card-action-btn:not(.accent-action):hover {
+    background: rgba(15, 23, 42, 0.08);
+    color: #0f172a;
+}
+
+body.light-mode .disclaimer-banner {
+    background: rgba(245, 158, 11, 0.1);
+    border-color: rgba(245, 158, 11, 0.2);
+    color: #b45309;
+}
+
+body.light-mode .disclaimer-banner small {
+    color: #d97706;
+}
+
+body.light-mode .support-1388-box {
+    background: rgba(99, 102, 241, 0.08);
+    border-color: rgba(99, 102, 241, 0.15);
+}
+
+body.light-mode .support-1388-box h4 {
+    color: #4f46e5;
+}
+
+body.light-mode .support-1388-box p {
+    color: #475569;
+}
+
+/* Floating Theme Toggle Button */
+.theme-toggle-btn {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    z-index: 1001;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    color: var(--text-primary);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    font-size: 1.1rem;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.theme-toggle-btn:hover {
+    transform: scale(1.08);
+    background: var(--text-primary);
+    color: var(--bg-color);
 }
