@@ -1,51 +1,45 @@
 document.addEventListener('DOMContentLoaded', async () => {
     
-    // UI Elements - Admin Mode
+    // Start Screen Elements
+    const startScreen = document.getElementById('start-screen');
+    const btnStartYouth = document.getElementById('btn-start-youth');
+    const btnStartAdmin = document.getElementById('btn-start-admin');
+    
+    // Back Links
+    const backToStartYouth = document.getElementById('back-to-start-youth');
+    const backToStartAdmin = document.getElementById('back-to-start-admin');
+    
+    // Organization View Elements
     const pSlider = document.getElementById('p-slider');
     const pVal = document.getElementById('p-val');
     const lambdaSlider = document.getElementById('lambda-slider');
     const lambdaText = document.getElementById('lambda-text');
     
-    const coverageBadge = document.getElementById('coverage-badge');
     const metricCoverage = document.getElementById('metric-coverage');
     const metricMaxDist = document.getElementById('metric-maxdist');
     const metricUncoveredCount = document.getElementById('metric-uncovered-count');
     const metricUncoveredNames = document.getElementById('metric-uncovered-names');
-    
-    const diffAddedList = document.getElementById('diff-added-list');
-    const diffRemovedList = document.getElementById('diff-removed-list');
     
     const effVals = document.getElementById('eff-vals');
     const eqVals = document.getElementById('eq-vals');
     const extremeEff = document.getElementById('extreme-eff');
     const extremeEq = document.getElementById('extreme-eq');
     
-    const gpsBtn = document.getElementById('gps-btn');
-    const modalClose = document.getElementById('close-modal');
-    const modalOverlay = document.getElementById('gps-modal');
-    
-    // Mode Switcher Elements
-    const btnAdminMode = document.getElementById('btn-admin-mode');
-    const btnYouthMode = document.getElementById('btn-youth-mode');
     const coveragePanel = document.getElementById('coverage-panel');
     const controlsPanel = document.getElementById('controls-panel');
     const youthPanel = document.getElementById('youth-panel');
     
-    // UI Elements - Youth Mode
+    // Youth Mode Elements
     const youthAddressInput = document.getElementById('youth-address-input');
     const youthSearchBtn = document.getElementById('youth-search-btn');
     const youthGpsBtn = document.getElementById('youth-gps-btn');
     const youthResultsContainer = document.getElementById('youth-results-container');
+    const youthMobileRouteContainer = document.getElementById('youth-mobile-route-container');
     
     // State
     let cellsGeojson = null;
     let sheltersGeojson = null;
-    let currentMode = 'admin'; // 'admin' or 'youth'
-    
-    let precomputedCurve = [];
-    let diminishingPoint = -1;
-    let coverageChart = null;
-    let lastCoveredRegions = null; // tracking for diffing
+    let currentMode = 'start'; // 'start', 'youth', 'admin'
     
     // Init Map
     MapModule.init();
@@ -62,129 +56,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         
         MapModule.renderCells(cellsGeojson);
         MapModule.renderShelters(sheltersGeojson);
-        
-        // 1. Precalculate curve and diminishing returns on load
-        precalculateCurve();
-        
-        // 2. Initialize Chart.js
-        initChart();
-        
-        // 3. Run initial optimization
-        runOpt();
+        MapModule.hideCells(); // Start in hidden cells mode
         
     } catch (e) {
         console.error("Failed to load data:", e);
-        if (metricCoverage) metricCoverage.innerHTML = "<span style='color:red;'>실패</span>";
     }
     
-    function precalculateCurve() {
-        if (!cellsGeojson || !sheltersGeojson) return;
-        
-        precomputedCurve = [];
-        for (let p = 0; p <= 50; p++) {
-            const opt = OptModule.runOptimization(
-                cellsGeojson.features,
-                sheltersGeojson.features,
-                p,
-                0 // standard efficiency curve
-            );
-            precomputedCurve.push(opt.newCoverage);
-        }
-        
-        // Calculate diminishing point: marginal increase <= 30% of avg of prev 5 intervals
-        let marginals = [];
-        for (let p = 1; p <= 50; p++) {
-            marginals.push(precomputedCurve[p] - precomputedCurve[p-1]);
-        }
-        
-        for (let i = 5; i < marginals.length; i++) {
-            const currentMarginal = marginals[i];
-            const prev5Avg = (marginals[i-1] + marginals[i-2] + marginals[i-3] + marginals[i-4] + marginals[i-5]) / 5;
-            
-            if (currentMarginal <= prev5Avg * 0.3) {
-                diminishingPoint = i + 1; // p = i + 1
-                break;
-            }
-        }
-    }
-    
-    function initChart() {
-        const ctx = document.getElementById('coverage-chart').getContext('2d');
-        const minCoverage = Math.min(...precomputedCurve);
-        const maxCoverage = Math.max(...precomputedCurve);
-        
-        const vLineData = [];
-        if (diminishingPoint !== -1) {
-            vLineData.push({x: diminishingPoint, y: minCoverage});
-            vLineData.push({x: diminishingPoint, y: maxCoverage});
-        }
-        
-        coverageChart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: Array.from({length: 51}, (_, i) => i),
-                datasets: [
-                    {
-                        label: '커버리지 곡선',
-                        data: precomputedCurve,
-                        borderColor: '#3b82f6',
-                        borderWidth: 2,
-                        fill: false,
-                        pointRadius: 0,
-                        tension: 0.1
-                    },
-                    {
-                        label: '현재 선택',
-                        data: [],
-                        borderColor: '#ef4444',
-                        backgroundColor: '#ef4444',
-                        pointRadius: 6,
-                        pointHoverRadius: 8,
-                        showLine: false
-                    },
-                    {
-                        label: '수확체감 임계점',
-                        data: vLineData,
-                        borderColor: '#f59e0b',
-                        borderDash: [5, 5],
-                        borderWidth: 1.5,
-                        fill: false,
-                        pointRadius: 0,
-                        showLine: true
-                    }
-                ]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false },
-                    tooltip: { enabled: true }
-                },
-                scales: {
-                    x: {
-                        type: 'linear',
-                        min: 0,
-                        max: 50,
-                        ticks: { color: '#94a3b8', stepSize: 10 },
-                        grid: { color: 'rgba(255,255,255,0.05)' }
-                    },
-                    y: {
-                        ticks: { color: '#94a3b8', callback: (val) => val.toFixed(0) + '%' },
-                        grid: { color: 'rgba(255,255,255,0.05)' }
-                    }
-                }
-            }
-        });
-        
-        const suggestionEl = document.getElementById('chart-suggestion');
-        if (diminishingPoint !== -1) {
-            suggestionEl.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> p = ${diminishingPoint}대 도입 시 추가 도입 대비 효율 최적`;
-        } else {
-            suggestionEl.innerText = "임계점 분석 완료";
-        }
-    }
-    
+    // Run Optimization (Admin Mode)
     function runOpt() {
         if(!cellsGeojson || !sheltersGeojson || currentMode !== 'admin') return;
         
@@ -200,100 +78,87 @@ document.addEventListener('DOMContentLoaded', async () => {
         
         MapModule.renderOptimizedSites(result.centers, cellsGeojson.features, sheltersGeojson.features);
         
-        // 1. Update Metrics Grid
-        coverageBadge.innerText = `${result.newCoverage.toFixed(1)}% 커버`;
-        metricCoverage.innerText = `${result.newCoverage.toFixed(1)}%`;
-        metricMaxDist.innerText = `${result.maxDistance.toFixed(1)}km`;
-        metricUncoveredCount.innerText = `${result.uncoveredCount}곳`;
+        // 1. Update everyday stats (rounded to 1 decimal place or integer)
+        metricCoverage.innerHTML = `<strong>${result.newCoverage.toFixed(1)}%</strong>`;
+        metricMaxDist.innerHTML = `<strong>${Math.round(result.maxDistance)}km</strong>`;
+        metricUncoveredCount.innerHTML = `<strong>${result.uncoveredCount}곳</strong>`;
         metricUncoveredNames.innerText = result.topUncoveredRegions.join(', ');
         
-        // 2. Update Curve Point on Chart
-        if (coverageChart) {
-            coverageChart.data.datasets[1].data = [{x: p, y: result.newCoverage}];
-            coverageChart.update();
-        }
-        
-        // 3. Highlight/Calculate Extremes Comparison
+        // 2. Calculate Extremes Comparison
         const effResult = OptModule.runOptimization(cellsGeojson.features, sheltersGeojson.features, p, 0.0);
         const eqResult = OptModule.runOptimization(cellsGeojson.features, sheltersGeojson.features, p, 1.0);
         
-        effVals.innerText = `커버리지 ${effResult.newCoverage.toFixed(1)}% | 최장 ${effResult.maxDistance.toFixed(1)}km | 미커버 ${effResult.uncoveredCount}곳`;
-        eqVals.innerText = `커버리지 ${eqResult.newCoverage.toFixed(1)}% | 최장 ${eqResult.maxDistance.toFixed(1)}km | 미커버 ${eqResult.uncoveredCount}곳`;
+        effVals.innerText = `걸어서 갈 수 있는 청소년 ${effResult.newCoverage.toFixed(1)}% | 가장 먼 지역 ${Math.round(effResult.maxDistance)}km | 닿지 않는 지역 ${effResult.uncoveredCount}곳`;
+        eqVals.innerText = `걸어서 갈 수 있는 청소년 ${eqResult.newCoverage.toFixed(1)}% | 가장 먼 지역 ${Math.round(eqResult.maxDistance)}km | 닿지 않는 지역 ${eqResult.uncoveredCount}곳`;
         
         extremeEff.classList.toggle('active-extreme', lambda === 0.0);
         extremeEq.classList.toggle('active-extreme', lambda === 1.0);
-        
-        // 4. Highlight Regional Changes (Diff)
-        const currentCovered = result.coveredRegions || [];
-        if (lastCoveredRegions === null) {
-            lastCoveredRegions = currentCovered;
-            diffAddedList.innerText = "없음";
-            diffRemovedList.innerText = "없음";
-        } else {
-            const added = currentCovered.filter(r => !lastCoveredRegions.includes(r));
-            const removed = lastCoveredRegions.filter(r => !currentCovered.includes(r));
-            
-            diffAddedList.innerText = added.length > 0 ? added.join(', ') : "없음";
-            diffRemovedList.innerText = removed.length > 0 ? removed.join(', ') : "없음";
-            
-            lastCoveredRegions = currentCovered;
-        }
     }
     
-    // Mode Switch Handler
-    function switchMode(mode) {
+    // Mode Switcher Handlers
+    function switchTo(mode) {
         currentMode = mode;
-        if (mode === 'admin') {
-            btnAdminMode.classList.add('active');
-            btnYouthMode.classList.remove('active');
-            
-            coveragePanel.classList.remove('hidden');
-            controlsPanel.classList.remove('hidden');
-            gpsBtn.classList.remove('hidden');
-            youthPanel.classList.add('hidden');
-            
-            // Re-run opt on map
-            runOpt();
-        } else {
-            btnYouthMode.classList.add('active');
-            btnAdminMode.classList.remove('active');
-            
+        
+        // Clear temporary items on map
+        MapModule.clearMobileStops();
+        MapModule.renderOptimizedSites([], [], []);
+        
+        if (mode === 'start') {
+            startScreen.classList.remove('hidden');
             coveragePanel.classList.add('hidden');
             controlsPanel.classList.add('hidden');
-            gpsBtn.classList.add('hidden');
-            youthPanel.classList.remove('hidden');
+            youthPanel.classList.add('hidden');
+            MapModule.hideCells();
             
-            // Clear recommendation sites and lines from map
-            MapModule.renderOptimizedSites([], cellsGeojson.features, sheltersGeojson.features);
+            // Zoom out map to national view
+            MapModule.getMap().flyTo([36.2, 127.8], 7.5);
+            
+        } else if (mode === 'youth') {
+            startScreen.classList.add('hidden');
+            coveragePanel.classList.add('hidden');
+            controlsPanel.classList.add('hidden');
+            youthPanel.classList.remove('hidden');
+            MapModule.hideCells(); // No voronoi/cvi layer in youth mode
+            
+            // Reset results
+            youthResultsContainer.innerHTML = '<div class="empty-state">내 위치를 확인하거나 지역을 검색해 주세요.</div>';
+            youthMobileRouteContainer.classList.add('hidden');
+            youthMobileRouteContainer.innerHTML = '';
+            
+        } else if (mode === 'admin') {
+            startScreen.classList.add('hidden');
+            coveragePanel.classList.remove('hidden');
+            controlsPanel.classList.remove('hidden');
+            youthPanel.classList.add('hidden');
+            MapModule.showCells(); // Show colored cells (analytical view)
+            
+            runOpt();
         }
     }
     
-    btnAdminMode.addEventListener('click', () => switchMode('admin'));
-    btnYouthMode.addEventListener('click', () => switchMode('youth'));
+    // Bind Start Button events
+    btnStartYouth.addEventListener('click', () => switchTo('youth'));
+    btnStartAdmin.addEventListener('click', () => switchTo('admin'));
     
-    // Sliders Event Listeners
+    // Bind Back Links
+    backToStartYouth.addEventListener('click', (e) => { e.preventDefault(); switchTo('start'); });
+    backToStartAdmin.addEventListener('click', (e) => { e.preventDefault(); switchTo('start'); });
+    
+    // Admin Slider bindings
     pSlider.addEventListener('input', (e) => {
         pVal.innerText = e.target.value;
     });
-    
     pSlider.addEventListener('change', runOpt);
     
     lambdaSlider.addEventListener('input', (e) => {
         const val = parseFloat(e.target.value);
-        if(val === 0) lambdaText.innerText = "효율성 우선";
-        else if(val === 1) lambdaText.innerText = "형평성 우선";
-        else lambdaText.innerText = `균형 (λ=${val.toFixed(1)})`;
+        if(val === 0) lambdaText.innerText = "많은 청소년이 이용하도록 우선";
+        else if(val === 1) lambdaText.innerText = "먼 지역도 빠짐없이 우선";
+        else lambdaText.innerText = `균형 배치 (λ=${val.toFixed(1)})`;
     });
-    
     lambdaSlider.addEventListener('change', runOpt);
     
-    // GPS (Admin Mode FAB)
-    gpsBtn.addEventListener('click', () => {
-        if(!cellsGeojson || !sheltersGeojson) return;
-        GeoModule.locate(cellsGeojson.features, sheltersGeojson.features);
-    });
-    
-    // Search (Admin Mode Search Box)
+    // Search bindings (Admin Mode)
     const searchBtn = document.getElementById('search-btn');
     const searchInput = document.getElementById('address-input');
     
@@ -310,45 +175,148 @@ document.addEventListener('DOMContentLoaded', async () => {
         if(e.key === 'Enter') handleSearch();
     });
     
-    modalClose.addEventListener('click', () => {
-        modalOverlay.classList.add('hidden');
-    });
+    // --- Youth Mode Controller ---
     
-    // --- Youth Mode Logic ---
-    
-    function renderYouthResults(data) {
+    // Render detail route cards for selected mobile shelter
+    function selectMobileShelter(shelter) {
+        const props = shelter.properties;
+        if (!props.is_mobile) return;
+        
+        const coords = shelter.geometry.coordinates;
+        const schedule = props.schedule || [];
+        const isDummy = props.is_dummy === true;
+        
         let html = '';
-        if (data.shelters.length === 0) {
-            // No shelters within 10km
-            html = `
-                <div class="danger-box">
-                    <i class="fa-solid fa-triangle-exclamation"></i>
-                    <h3>반경 10km 내 쉼터 부재</h3>
-                    <p>현재 계신 주변에는 청소년 쉼터가 단 한 곳도 없습니다.<br>전국 청소년의 34%가 같은 상황입니다.</p>
-                </div>
-                <div style="margin-top:12px; padding: 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--panel-border); border-radius: 8px;">
-                    <p style="color:#94a3b8; font-size:0.8rem; line-height: 1.4;">
-                        현재 지역: <b>${data.cell.region}</b><br>
-                        접근성 열악도: 전국 상위 <b>${data.percentile.toFixed(1)}%</b> 수준
-                    </p>
+        
+        if (isDummy) {
+            html += `
+                <div class="disclaimer-banner">
+                    <i class="fa-solid fa-circle-info"></i>
+                    <span>예시 일정입니다. 실제 운행 정보는 기관에 확인하세요.</span>
                 </div>
             `;
+        }
+        
+        // Check if currently operating today
+        const now = new Date();
+        const currentHour = now.getHours();
+        const currentDay = now.getDay(); // 0 is Sunday, 1 is Monday...
+        const korDayIndex = currentDay === 0 ? 6 : currentDay - 1; // Mon=0.. Sun=6
+        
+        let isCurrentlyOpen = false;
+        
+        html += `
+            <div class="schedule-card">
+                <div class="schedule-header">
+                    <i class="fa-solid fa-calendar-days"></i>
+                    <span>${props.name} 운행 경로 및 일정</span>
+                </div>
+        `;
+        
+        schedule.forEach((item, idx) => {
+            const isToday = idx === korDayIndex;
+            const isPast = idx < korDayIndex;
+            
+            let rowClass = '';
+            if (isToday) rowClass = 'today-highlight';
+            else if (isPast) rowClass = 'past-day';
+            
+            // Check if active today and current time falls inside 19:00 - 23:00
+            if (isToday && item.time) {
+                // Parse operating hours (assuming 19:00-23:00 dummy for testing, or generic format hh:mm)
+                // Default: 19:00 to 23:00
+                const startHour = 19;
+                const endHour = 23;
+                if (currentHour >= startHour && currentHour < endHour) {
+                    isCurrentlyOpen = true;
+                }
+            }
+            
+            html += `
+                <div class="schedule-row ${rowClass}">
+                    <span><b>${item.day}</b></span>
+                    <span>${item.location}</span>
+                    <span>${item.time || '운행 없음'}</span>
+                </div>
+            `;
+        });
+        
+        html += `</div>`;
+        
+        // Show status banner if open
+        if (isCurrentlyOpen) {
+            html = `
+                <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); color: #34d399; padding: 10px 12px; border-radius: 8px; font-size: 0.8rem; font-weight: 700; margin-bottom: 12px; text-align: center;">
+                    <i class="fa-solid fa-circle-check"></i> 지금 운영 중
+                </div>
+            ` + html;
+        }
+        
+        youthMobileRouteContainer.innerHTML = html;
+        youthMobileRouteContainer.classList.remove('hidden');
+        
+        // Scroll to schedule card
+        youthMobileRouteContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        
+        // Render stops and connections on Map
+        MapModule.renderMobileStops(coords[1], coords[0], schedule, props.name);
+    }
+    
+    // Register global click handler to coordinate with Leaflet clicks
+    window.onShelterClick = function(feature) {
+        if (currentMode === 'youth' && feature.properties.is_mobile) {
+            selectMobileShelter(feature);
+        }
+    };
+    
+    // Calculate distance to absolute nearest shelter in the database
+    function findAbsoluteNearestDistance(lat, lng) {
+        let minD = Infinity;
+        sheltersGeojson.features.forEach(s => {
+            const d = OptModule.calcDistKm(lat, lng, s.geometry.coordinates[1], s.geometry.coordinates[0]);
+            if (d < minD) minD = d;
+        });
+        return minD;
+    }
+    
+    function renderYouthResults(data, userLat, userLng) {
+        let html = '';
+        
+        if (data.shelters.length === 0) {
+            // Find absolute nearest distance in the entire database
+            const nearestKm = findAbsoluteNearestDistance(userLat, userLng);
+            
+            html = `
+                <div class="danger-box">
+                    <i class="fa-solid fa-location-dot"></i>
+                    <h3>근처에 갈 수 있는 쉼터가 없습니다.</h3>
+                    <p>가장 가까운 곳은 약 <strong>${nearestKm.toFixed(1)}km</strong> 떨어져 있습니다.</p>
+                </div>
+                <div class="support-1388-box">
+                    <h4>청소년 전화 1388 안내</h4>
+                    <p>위기 상황이나 긴급 상담이 필요할 때 365일 24시간 언제나 무료로 상담을 받을 수 있습니다.</p>
+                    <a href="tel:1388" class="card-action-btn accent-action" style="width: 100%;">
+                        <i class="fa-solid fa-phone"></i> 1388 전화 연결
+                    </a>
+                </div>
+            `;
+            youthMobileRouteContainer.classList.add('hidden');
+            MapModule.clearMobileStops();
         } else {
             html = `
                 <div style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:8px;">
-                    현재 지역 <b>${data.cell.region}</b>의 접근성은 전국 상위 <strong>${data.percentile.toFixed(1)}%</strong> 수준입니다.
+                    주변 10km 이내 쉼터 검색 결과입니다.
                 </div>
             `;
             
             data.shelters.forEach(s => {
-                const walkTime = Math.round((s.distKm / 4) * 60); // 4km/h walking speed
+                const walkTime = Math.round((s.distKm / 4) * 60); // 4km/h walking
+                const isMobile = s.lat !== undefined; // Check mobile context
                 
-                // Deterministic Operating Hours
+                // Determine open status based on hours
                 const charCodeSum = s.name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
                 const is24h = charCodeSum % 2 === 0;
-                const hoursText = is24h ? "24시간 연중무휴" : "09:00 ~ 18:00 (주말 휴무)";
                 
-                // Determine if open
                 let isOpen = true;
                 const now = new Date();
                 const hour = now.getHours();
@@ -363,31 +331,48 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const statusText = isOpen ? "운영 중" : "운영 종료";
                 const cardClass = isOpen ? "" : "closed";
                 
-                // Kakao map route link
                 const routeUrl = `https://map.kakao.com/link/to/${encodeURIComponent(s.name)},${s.lat},${s.lng}`;
                 
                 html += `
-                    <div class="shelter-card ${cardClass}">
-                        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 6px;">
-                            <span class="distance-badge">${s.distKm.toFixed(1)}km (도보 약 ${walkTime}분)</span>
+                    <div class="shelter-card ${cardClass}" id="card-${s.name.replace(/\s+/g, '')}">
+                        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                            <span class="distance-badge">${s.distKm.toFixed(1)}km · 도보 ${walkTime}분</span>
                             <span class="status-badge ${statusClass}">${statusText}</span>
                         </div>
                         <div class="shelter-name">${s.name}</div>
+                        ${isMobile ? `<div style="font-size:0.75rem; color:var(--warning-color); font-weight:700; margin-bottom:10px;"><i class="fa-solid fa-triangle-exclamation"></i> 시간대에 따라 위치가 바뀝니다.</div>` : ''}
                         <div class="shelter-info"><i class="fa-solid fa-location-dot"></i> ${s.address}</div>
                         <div class="shelter-info"><i class="fa-solid fa-phone"></i> ${s.phone || '연락처 없음'}</div>
-                        <div class="shelter-info"><i class="fa-solid fa-clock"></i> ${hoursText}</div>
-                        <a href="${routeUrl}" target="_blank" class="route-link">
-                            <i class="fa-solid fa-map-location-dot"></i> 길찾기 (카카오맵)
-                        </a>
+                        
+                        <div class="shelter-actions">
+                            ${s.phone ? `<a href="tel:${s.phone}" class="card-action-btn"><i class="fa-solid fa-phone"></i> 전화 걸기</a>` : ''}
+                            <a href="${routeUrl}" target="_blank" class="card-action-btn accent-action"><i class="fa-solid fa-map-location-dot"></i> 길찾기</a>
+                        </div>
                     </div>
                 `;
             });
         }
         
         youthResultsContainer.innerHTML = html;
+        
+        // Attach click listeners to cards to simulate marker click for mobile schedule
+        if (data.shelters.length > 0) {
+            data.shelters.forEach(s => {
+                const cardEl = document.getElementById(`card-${s.name.replace(/\s+/g, '')}`);
+                if (cardEl) {
+                    cardEl.addEventListener('click', () => {
+                        // Find full feature in geojson
+                        const feat = sheltersGeojson.features.find(f => f.properties.name === s.name);
+                        if (feat && feat.properties.is_mobile) {
+                            selectMobileShelter(feat);
+                        }
+                    });
+                }
+            });
+        }
     }
     
-    // GPS position in Youth Mode
+    // GPS button Youth Mode
     youthGpsBtn.addEventListener('click', () => {
         if (!cellsGeojson || !sheltersGeojson) return;
         
@@ -402,7 +387,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 MapModule.getMap().flyTo([lat, lng], 13);
                 
                 const result = GeoModule.findNearest(lat, lng, cellsGeojson.features, sheltersGeojson.features);
-                renderYouthResults(result);
+                renderYouthResults(result, lat, lng);
                 
                 youthGpsBtn.innerHTML = originalText;
             }, (error) => {
@@ -414,7 +399,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
     
-    // Search in Youth Mode
+    // Search button Youth Mode
     const handleYouthSearch = async () => {
         if (!cellsGeojson || !sheltersGeojson) return;
         const query = youthAddressInput.value.trim();
@@ -434,7 +419,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 
                 MapModule.getMap().flyTo([lat, lng], 13);
                 const result = GeoModule.findNearest(lat, lng, cellsGeojson.features, sheltersGeojson.features);
-                renderYouthResults(result);
+                renderYouthResults(result, lat, lng);
             } else {
                 alert("주소를 찾을 수 없습니다.");
             }

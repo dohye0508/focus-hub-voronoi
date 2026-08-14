@@ -3,6 +3,7 @@ const MapModule = (function() {
     let cellsLayerGroup;
     let sheltersLayerGroup;
     let optLayerGroup;
+    let mobileStopsLayerGroup; // Layer group for mobile route stops
     let cellsData = [];
     
     // HSL Color logic based on CVI
@@ -14,9 +15,9 @@ const MapModule = (function() {
 
     function initMap() {
         map = L.map('map', {
-            center: [36.5, 127.8],
-            zoom: 7,
-            zoomControl: false // We can add it custom or hide it for mobile feel
+            center: [36.2, 127.8],
+            zoom: 7.5,
+            zoomControl: false
         });
 
         // Dark mode tile layer (CartoDB Dark Matter)
@@ -29,6 +30,7 @@ const MapModule = (function() {
         cellsLayerGroup = L.layerGroup().addTo(map);
         sheltersLayerGroup = L.layerGroup().addTo(map);
         optLayerGroup = L.layerGroup().addTo(map);
+        mobileStopsLayerGroup = L.layerGroup().addTo(map);
     }
 
     function renderCells(geojson) {
@@ -38,10 +40,10 @@ const MapModule = (function() {
         L.geoJSON(geojson, {
             style: function(feature) {
                 return {
-                    color: 'rgba(255,255,255,0.1)',
+                    color: 'rgba(255,255,255,0.06)',
                     weight: 1,
                     fillColor: cviToColor(feature.properties.cvi),
-                    fillOpacity: 0.4
+                    fillOpacity: 0.35
                 };
             },
             onEachFeature: function(feature, layer) {
@@ -49,7 +51,7 @@ const MapModule = (function() {
                 const tooltipContent = `
                     <div style="font-family:'Pretendard';">
                         <b>${p.region}</b><br>
-                        필요 확률 (CVI): ${(p.cvi * 100).toFixed(1)}%<br>
+                        취약 수준: ${(p.cvi * 100).toFixed(0)}%<br>
                         청소년 인구: ${p.population.toLocaleString()}명
                     </div>
                 `;
@@ -63,43 +65,94 @@ const MapModule = (function() {
 
     function renderShelters(geojson) {
         sheltersLayerGroup.clearLayers();
-        
-        const customIcon = L.divIcon({
-            html: '<div style="width:12px;height:12px;background:#10b981;border-radius:50%;border:2px solid #0f172a;box-shadow:0 0 10px rgba(16, 185, 129, 0.6);"></div>',
-            iconSize: [12, 12],
-            className: 'shelter-icon'
-        });
 
         L.geoJSON(geojson, {
             pointToLayer: function(feature, latlng) {
+                const isMobile = feature.properties.is_mobile === true;
+                
                 // 2km coverage circle (approx 30 mins walk)
                 L.circle(latlng, {
                     radius: 2000,
-                    color: '#10b981',
-                    fillColor: '#10b981',
-                    fillOpacity: 0.05,
+                    color: isMobile ? '#f59e0b' : '#10b981',
+                    fillColor: isMobile ? '#f59e0b' : '#10b981',
+                    fillOpacity: 0.04,
                     weight: 1,
-                    dashArray: '4'
+                    dashArray: '3, 5'
                 }).addTo(sheltersLayerGroup);
+                
+                const customIcon = L.divIcon({
+                    html: isMobile 
+                        ? '<div style="width:14px;height:14px;background:#f59e0b;border-radius:50%;border:2px solid #0f172a;box-shadow:0 0 10px rgba(245, 158, 11, 0.7);display:flex;align-items:center;justify-content:center;color:#fff;font-size:8px;"><i class="fa-solid fa-bus"></i></div>'
+                        : '<div style="width:12px;height:12px;background:#10b981;border-radius:50%;border:2px solid #0f172a;box-shadow:0 0 10px rgba(16, 185, 129, 0.6);"></div>',
+                    iconSize: isMobile ? [14, 14] : [12, 12],
+                    className: 'shelter-icon'
+                });
                 
                 return L.marker(latlng, {icon: customIcon});
             },
             onEachFeature: function(feature, layer) {
-                layer.bindTooltip(`<b>${feature.properties.name}</b>`);
+                const typeText = feature.properties.is_mobile ? '이동형 쉼터' : '고정형 쉼터';
+                layer.bindTooltip(`<b>${feature.properties.name}</b> (${typeText})`);
+                
+                layer.on('click', function() {
+                    if (window.onShelterClick) {
+                        window.onShelterClick(feature);
+                    }
+                });
             }
         }).addTo(sheltersLayerGroup);
+    }
+
+    function renderMobileStops(shelterLat, shelterLng, schedule, name) {
+        mobileStopsLayerGroup.clearLayers();
+        
+        const today = new Date().getDay(); // 0 is Sunday, 1 is Monday...
+        const korDayIndex = today === 0 ? 6 : today - 1; // Mon is 0, Tue is 1... Sun is 6
+        
+        schedule.forEach((stop, idx) => {
+            if (idx === 6) return; // Skip Sunday (usually no run)
+            
+            // Deterministic offsets around base lat/lng for visualization
+            const angle = (idx * 2 * Math.PI) / 6;
+            const r = 0.004; // ~400m
+            const stopLat = shelterLat + r * Math.sin(angle);
+            const stopLng = shelterLng + r * Math.cos(angle);
+            
+            const isToday = idx === korDayIndex;
+            
+            const stopIcon = L.divIcon({
+                html: `<div style="width:${isToday ? 20 : 14}px;height:${isToday ? 20 : 14}px;background:${isToday ? '#6366f1' : '#475569'};border-radius:50%;border:2px solid #fff;box-shadow:0 0 10px rgba(99,102,241,0.6);display:flex;align-items:center;justify-content:center;color:#fff;font-size:9px;font-weight:700;line-height:1;">${stop.day[0]}</div>`,
+                iconSize: isToday ? [20, 20] : [14, 14],
+                className: 'mobile-stop-icon'
+            });
+            
+            L.marker([stopLat, stopLng], {icon: stopIcon})
+                .bindTooltip(`<b>${name} (${stop.day} 정차지)</b><br>위치: ${stop.location}<br>시간: ${stop.time || '운행안함'}`)
+                .addTo(mobileStopsLayerGroup);
+                
+            // Draw route connection line
+            L.polyline([[shelterLat, shelterLng], [stopLat, stopLng]], {
+                color: isToday ? 'rgba(99, 102, 241, 0.7)' : 'rgba(148, 163, 184, 0.25)',
+                weight: isToday ? 2.5 : 1.5,
+                dashArray: '3, 4'
+            }).addTo(mobileStopsLayerGroup);
+        });
+    }
+
+    function clearMobileStops() {
+        mobileStopsLayerGroup.clearLayers();
     }
 
     function renderOptimizedSites(centers, cellsData, existingShelters) {
         optLayerGroup.clearLayers();
         
         const starIcon = L.divIcon({
-            html: '<div style="width:24px;height:24px;background:#f59e0b;border-radius:50%;border:2px solid #fff;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;box-shadow:0 0 15px rgba(245, 158, 11, 0.8);"><i class="fa-solid fa-star"></i></div>',
+            html: '<div style="width:24px;height:24px;background:#6366f1;border-radius:50%;border:2px solid #fff;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;box-shadow:0 0 15px rgba(99, 102, 241, 0.8);"><i class="fa-solid fa-star"></i></div>',
             iconSize: [24, 24],
             className: 'opt-icon'
         });
 
-        // 1. Draw connecting lines (Spider web) from cells to nearest centers
+        // 1. Draw lines to closest centers/shelters
         if (cellsData) {
             cellsData.forEach(cell => {
                 const pLat = cell.properties.centroid[1];
@@ -109,7 +162,6 @@ const MapModule = (function() {
                 let nearestLat = 0;
                 let nearestLng = 0;
                 
-                // Check existing
                 if (existingShelters) {
                     existingShelters.forEach(s => {
                         const sLat = s.geometry.coordinates[1];
@@ -119,16 +171,14 @@ const MapModule = (function() {
                     });
                 }
                 
-                // Check new centers
                 centers.forEach(c => {
                     const d = OptModule.calcDistKm(pLat, pLng, c.lat, c.lng);
                     if (d < minDist) { minDist = d; nearestLat = c.lat; nearestLng = c.lng; }
                 });
                 
-                // If it is covered (e.g. within 5km for visual clarity), draw a faint line
                 if (minDist <= 5.0) {
                     L.polyline([[pLat, pLng], [nearestLat, nearestLng]], {
-                        color: 'rgba(255, 255, 255, 0.15)',
+                        color: 'rgba(255, 255, 255, 0.08)',
                         weight: 1,
                         dashArray: '2, 4'
                     }).addTo(optLayerGroup);
@@ -136,21 +186,31 @@ const MapModule = (function() {
             });
         }
 
-        // 2. Draw new centers and their coverage circles
+        // 2. Draw new centers
         centers.forEach(c => {
-            // Coverage circle
             L.circle([c.lat, c.lng], {
                 radius: 2000, // 2km
-                color: '#f59e0b',
-                fillColor: '#f59e0b',
-                fillOpacity: 0.1,
+                color: '#6366f1',
+                fillColor: '#6366f1',
+                fillOpacity: 0.08,
                 weight: 1,
                 dashArray: '4'
             }).addTo(optLayerGroup);
             
-            // Marker
+            const regionsList = c.assignedCells.map(cell => cell.region).slice(0, 4).join(', ') + (c.assignedCells.length > 4 ? ' 등' : '');
+            
+            const popupContent = `
+                <div style="font-family:'Pretendard'; font-size:0.85rem; line-height:1.4; color:#334155; width:220px;">
+                    <b style="font-size:0.95rem; color:#6366f1;">이동형 쉼터 버스 추천 위치</b><br>
+                    <div style="margin-top:6px; border-top:1px solid #e2e8f0; padding-top:6px;">
+                        <b>담당 지역 청소년 수:</b> ${c.totalPopulation.toLocaleString()}명<br>
+                        <b>주요 담당 범위:</b> ${regionsList || '없음'} (${c.assignedCells.length}개 행정구역)
+                    </div>
+                </div>
+            `;
+            
             L.marker([c.lat, c.lng], {icon: starIcon, zIndexOffset: 1000})
-             .bindTooltip('<b>새로운 이동형 쉼터 추천 위치</b>')
+             .bindPopup(popupContent)
              .addTo(optLayerGroup);
         });
     }
@@ -159,7 +219,11 @@ const MapModule = (function() {
         init: initMap,
         renderCells,
         renderShelters,
+        renderMobileStops,
+        clearMobileStops,
         renderOptimizedSites,
+        showCells: () => { if(map && cellsLayerGroup) map.addLayer(cellsLayerGroup); },
+        hideCells: () => { if(map && cellsLayerGroup) map.removeLayer(cellsLayerGroup); },
         getMap: () => map
     };
 })();

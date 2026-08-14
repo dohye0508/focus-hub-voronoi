@@ -189,6 +189,41 @@ const OptModule = (function() {
             // 2. Local search for equity (lambda)
             centers = applyEquity(points, centers, lambda);
             
+            // Initialize assignment tracking
+            centers.forEach(c => {
+                c.assignedCells = [];
+                c.totalPopulation = 0;
+            });
+            
+            // Assign cells to their closest new center if it is closer than existing shelters
+            points.forEach(pPoint => {
+                let minDist = Infinity;
+                let nearestIsNew = false;
+                let nearestNewIdx = -1;
+                
+                existingShelters.forEach(s => {
+                    let d = calcDistKm(pPoint.lat, pPoint.lng, s.lat, s.lng);
+                    if(d < minDist) {
+                        minDist = d;
+                        nearestIsNew = false;
+                    }
+                });
+                
+                centers.forEach((c, idx) => {
+                    let d = calcDistKm(pPoint.lat, pPoint.lng, c.lat, c.lng);
+                    if(d < minDist) {
+                        minDist = d;
+                        nearestIsNew = true;
+                        nearestNewIdx = idx;
+                    }
+                });
+                
+                if (nearestIsNew && nearestNewIdx !== -1) {
+                    centers[nearestNewIdx].assignedCells.push(pPoint);
+                    centers[nearestNewIdx].totalPopulation += pPoint.population;
+                }
+            });
+            
             // 3. Calculate Coverage
             let details = calculateCoverageDetails(points, centers, existingShelters);
             let baseDetails = calculateCoverageDetails(points, [], existingShelters);
