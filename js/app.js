@@ -25,8 +25,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const extremeEff = document.getElementById('extreme-eff');
     const extremeEq = document.getElementById('extreme-eq');
     
-    const coveragePanel = document.getElementById('coverage-panel');
-    const controlsPanel = document.getElementById('controls-panel');
+    const adminPanel = document.getElementById('admin-panel');
     const youthPanel = document.getElementById('youth-panel');
     
     // Youth Mode Elements
@@ -111,8 +110,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         
         if (mode === 'start') {
             startScreen.classList.remove('hidden');
-            coveragePanel.classList.add('hidden');
-            controlsPanel.classList.add('hidden');
+            adminPanel.classList.add('hidden');
             youthPanel.classList.add('hidden');
             MapModule.hideCells();
             
@@ -121,8 +119,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             
         } else if (mode === 'youth') {
             startScreen.classList.add('hidden');
-            coveragePanel.classList.add('hidden');
-            controlsPanel.classList.add('hidden');
+            adminPanel.classList.add('hidden');
             youthPanel.classList.remove('hidden');
             MapModule.hideCells(); // No voronoi/cvi layer in youth mode
             
@@ -133,8 +130,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             
         } else if (mode === 'admin') {
             startScreen.classList.add('hidden');
-            coveragePanel.classList.remove('hidden');
-            controlsPanel.classList.remove('hidden');
+            adminPanel.classList.remove('hidden');
             youthPanel.classList.add('hidden');
             MapModule.showCells(); // Show analytical view
             

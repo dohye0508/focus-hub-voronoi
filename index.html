@@ -46,8 +46,8 @@
         </div>
     </div>
     
-    <!-- 2. Top Coverage Dashboard (Organization/Admin Mode) -->
-    <div id="coverage-panel" class="glass-panel top-panel hidden">
+    <!-- 2. Admin Sidebar Panel (Organization/Admin Mode) -->
+    <div id="admin-panel" class="glass-panel admin-panel hidden">
         <div class="panel-top-nav">
             <a href="#" class="back-link" id="back-to-start-admin">
                 <i class="fa-solid fa-chevron-left"></i> 처음으로
@@ -95,14 +95,13 @@
         
         <div class="divider"></div>
 
-        <div class="uncovered-names-container">
+        <div class="uncovered-names-container" style="margin-bottom: 12px;">
             <div class="metric-label-uncovered">가장 먼 지역 상위 3곳 (접근성 취약지)</div>
             <div class="metric-value-names" id="metric-uncovered-names">-</div>
         </div>
-    </div>
-    
-    <!-- 3. Bottom Controls Panel (Organization/Admin Mode) -->
-    <div id="controls-panel" class="glass-panel bottom-panel hidden">
+
+        <div class="divider"></div>
+
         <!-- P Slider (Number of Shelters) -->
         <div class="control-group">
             <div class="control-header">
@@ -133,11 +132,11 @@
         <div class="lambda-extremes">
             <div class="extreme-row" id="extreme-eff">
                 <div class="extreme-header">많은 청소년이 이용하도록 우선</div>
-                <div class="extreme-body" id="eff-vals">걸어서 갈 수 있는 청소년 - | 가장 먼 지역 - | 닿지 않는 지역 -</div>
+                <div class="extreme-body" id="eff-vals">차량으로 갈 수 있는 청소년 - | 가장 먼 지역 - | 닿지 않는 지역 -</div>
             </div>
             <div class="extreme-row" id="extreme-eq">
                 <div class="extreme-header">먼 지역도 빠짐없이 우선</div>
-                <div class="extreme-body" id="eq-vals">걸어서 갈 수 있는 청소년 - | 가장 먼 지역 - | 닿지 않는 지역 -</div>
+                <div class="extreme-body" id="eq-vals">차량으로 갈 수 있는 청소년 - | 가장 먼 지역 - | 닿지 않는 지역 -</div>
             </div>
         </div>
     </div>

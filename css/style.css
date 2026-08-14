@@ -71,18 +71,15 @@ body, html {
 }
 
 /* Panels Placement */
-.top-panel {
+.admin-panel {
     top: 20px;
-    left: 20px;
-    width: 380px;
-    max-height: calc(100% - 320px);
-    overflow: hidden;
-}
-
-.bottom-panel {
     bottom: 20px;
     left: 20px;
     width: 380px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    overflow-y: auto;
 }
 
 .youth-panel {
@@ -517,7 +514,7 @@ body, html {
 .shelter-name {
     font-weight: 700;
     font-size: 1rem;
-    color: #fff;
+    color: var(--text-primary);
     margin-top: 8px;
     margin-bottom: 8px;
 }
@@ -598,7 +595,7 @@ body, html {
 }
 
 .schedule-row.today-highlight {
-    color: #fff;
+    color: var(--text-primary);
     font-weight: 700;
     background: rgba(255, 255, 255, 0.05);
     border-radius: 4px;
@@ -791,4 +788,18 @@ body.light-mode .support-1388-box p {
     transform: scale(1.08);
     background: var(--text-primary);
     color: var(--bg-color);
+}
+
+body.light-mode .theme-toggle-btn:hover {
+    transform: scale(1.08);
+    background: var(--text-primary);
+    color: var(--bg-color);
+}
+
+body.light-mode .schedule-header {
+    color: #4f46e5;
+}
+
+body.light-mode .schedule-row.today-highlight {
+    background: rgba(15, 23, 42, 0.06);
 }
