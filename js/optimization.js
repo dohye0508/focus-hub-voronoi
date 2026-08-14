@@ -113,9 +113,13 @@ const OptModule = (function() {
         return currentCenters;
     }
 
-    function calculateCoverage(points, centers, existingShelters) {
+    function calculateCoverageDetails(points, centers, existingShelters) {
         let coveredPop = 0;
         let totalPop = 0;
+        let maxDist = 0;
+        let uncoveredCount = 0;
+        let regionDists = [];
+        let coveredRegions = new Set();
         
         points.forEach(p => {
             totalPop += p.population;
@@ -133,13 +137,34 @@ const OptModule = (function() {
                 if(d < minDist) minDist = d;
             });
             
+            regionDists.push({
+                region: p.region,
+                dist: minDist
+            });
+            
             // 2.0km coverage radius (Walking 30 mins)
             if(minDist <= 2.0) {
                 coveredPop += p.population;
+                coveredRegions.add(p.region);
+            } else {
+                uncoveredCount++;
+            }
+            
+            if(minDist > maxDist && minDist !== Infinity) {
+                maxDist = minDist;
             }
         });
         
-        return totalPop === 0 ? 0 : (coveredPop / totalPop) * 100;
+        regionDists.sort((a, b) => b.dist - a.dist);
+        let topUncovered = regionDists.slice(0, 3).map(r => r.region);
+        
+        return {
+            coverage: totalPop === 0 ? 0 : (coveredPop / totalPop) * 100,
+            maxDistance: maxDist,
+            uncoveredCount: uncoveredCount,
+            topUncoveredRegions: topUncovered,
+            coveredRegions: Array.from(coveredRegions)
+        };
     }
 
     return {
@@ -149,7 +174,8 @@ const OptModule = (function() {
                 lat: f.properties.centroid[1],
                 lng: f.properties.centroid[0],
                 cvi: f.properties.cvi,
-                population: f.properties.population
+                population: f.properties.population,
+                region: f.properties.region
             }));
             
             const existingShelters = sheltersData.map(f => ({
@@ -164,13 +190,17 @@ const OptModule = (function() {
             centers = applyEquity(points, centers, lambda);
             
             // 3. Calculate Coverage
-            let coverage = calculateCoverage(points, centers, existingShelters);
-            let baseCoverage = calculateCoverage(points, [], existingShelters);
+            let details = calculateCoverageDetails(points, centers, existingShelters);
+            let baseDetails = calculateCoverageDetails(points, [], existingShelters);
             
             return {
                 centers: centers,
-                baseCoverage: baseCoverage,
-                newCoverage: coverage
+                baseCoverage: baseDetails.coverage,
+                newCoverage: details.coverage,
+                maxDistance: details.maxDistance,
+                uncoveredCount: details.uncoveredCount,
+                topUncoveredRegions: details.topUncoveredRegions,
+                coveredRegions: details.coveredRegions
             };
         },
         calcDistKm

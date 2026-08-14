@@ -26,7 +26,9 @@ const GeoModule = (function() {
                     name: f.properties.name,
                     address: f.properties.address,
                     phone: f.properties.phone,
-                    distKm: d
+                    distKm: d,
+                    lat: sLat,
+                    lng: sLng
                 });
             }
         });
@@ -147,6 +149,8 @@ const GeoModule = (function() {
             }
             
             btn.innerHTML = originalIcon;
-        }
+        },
+        
+        findNearest: findNearest
     };
 })();

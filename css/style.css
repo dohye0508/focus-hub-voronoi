@@ -378,4 +378,278 @@ body, html {
     background: var(--accent-hover);
 }
 
+/* Mode Toggle Panel */
+.mode-panel {
+    top: 20px;
+    left: 20px;
+    width: 350px;
+    display: flex;
+    gap: 8px;
+    padding: 8px;
+}
+
+.mode-btn {
+    flex: 1;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--panel-border);
+    color: var(--text-secondary);
+    padding: 8px;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.mode-btn.active {
+    background: var(--accent-color);
+    color: #fff;
+    border-color: var(--accent-color);
+}
+
+/* Adjust top panel height and position because of mode panel */
+.top-panel {
+    top: 75px;
+    bottom: 30px; /* Let it grow but constrain it if needed */
+    max-height: calc(100% - 120px);
+    overflow-y: auto;
+}
+
+/* Scrollbar styling for panels */
+.glass-panel::-webkit-scrollbar {
+    width: 6px;
+}
+.glass-panel::-webkit-scrollbar-track {
+    background: transparent;
+}
+.glass-panel::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+}
+
+/* Metrics Grid */
+.metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.metric-card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 8px;
+    text-align: center;
+}
+
+.metric-label {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+}
+
+.metric-value {
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: var(--text-primary);
+}
+
+.uncovered-names-container {
+    margin-top: 10px;
+    padding: 8px 12px;
+    background: rgba(239, 68, 68, 0.05);
+    border: 1px solid rgba(239, 68, 68, 0.15);
+    border-radius: 8px;
+}
+
+.metric-value-names {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #fca5a5;
+    margin-top: 2px;
+}
+
+/* Chart */
+.chart-container {
+    position: relative;
+    width: 100%;
+}
+
+.chart-label {
+    margin-top: 6px;
+    font-size: 0.75rem;
+    color: #f59e0b;
+    text-align: center;
+    font-weight: 600;
+}
+
+/* Region Diff */
+.diff-container {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.diff-lists {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.diff-list {
+    font-size: 0.75rem;
+    padding: 4px 8px;
+    border-radius: 4px;
+    display: flex;
+    gap: 6px;
+}
+
+.diff-added {
+    background: rgba(16, 185, 129, 0.1);
+    color: #a7f3d0;
+}
+
+.diff-removed {
+    background: rgba(239, 68, 68, 0.1);
+    color: #fecaca;
+}
+
+.diff-title {
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.diff-content {
+    word-break: break-all;
+}
+
+/* Lambda Extremes */
+.lambda-extremes {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.extreme-row {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    padding: 6px 10px;
+}
+
+.extreme-header {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    margin-bottom: 2px;
+}
+
+.extreme-body {
+    font-size: 0.75rem;
+    color: var(--text-primary);
+}
+
+#extreme-eff {
+    border-left: 3px solid #3b82f6;
+}
+
+#extreme-eq {
+    border-left: 3px solid #a855f7;
+}
+
+.extreme-row.active-extreme {
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(255,255,255,0.25);
+}
+
+/* Youth Panel */
+.youth-panel {
+    top: 75px;
+    bottom: 30px;
+    width: 350px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow-y: auto;
+}
+
+.action-btn {
+    width: 100%;
+    background: var(--accent-color);
+    border: none;
+    color: #fff;
+    padding: 10px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: background 0.2s;
+}
+
+.action-btn:hover {
+    background: var(--accent-hover);
+}
+
+#youth-results-container {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.empty-state {
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    padding: 40px 0;
+}
+
+/* Badges and open/close indicators */
+.open-badge {
+    background: rgba(16, 185, 129, 0.2);
+    color: #34d399;
+}
+
+.closed-badge {
+    background: rgba(239, 68, 68, 0.2);
+    color: #f87171;
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    margin-left: 6px;
+    vertical-align: middle;
+}
+
+.shelter-card.closed {
+    opacity: 0.65;
+}
+
+.route-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 8px;
+    font-size: 0.75rem;
+    color: #60a5fa;
+    text-decoration: none;
+    font-weight: 700;
+}
+
+.route-link:hover {
+    text-decoration: underline;
+}
+
+.hidden {
+    display: none !important;
+}
+
 
