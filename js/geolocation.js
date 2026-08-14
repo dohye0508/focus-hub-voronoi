@@ -28,7 +28,8 @@ const GeoModule = (function() {
                     phone: f.properties.phone,
                     distKm: d,
                     lat: sLat,
-                    lng: sLng
+                    lng: sLng,
+                    is_mobile: f.properties.is_mobile === true
                 });
             }
         });

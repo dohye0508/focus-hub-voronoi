@@ -392,7 +392,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             
             data.shelters.forEach(s => {
                 const walkTime = Math.round((s.distKm / 4) * 60); // 4km/h walking
-                const isMobile = s.lat !== undefined; // Check mobile context
+                const isMobile = s.is_mobile === true; // Check mobile context
                 
                 // Determine if there is route data for this shelter
                 const hasRoute = mobileRoutesData && mobileRoutesData.shelters.some(r => r.shelter_name === s.name);
