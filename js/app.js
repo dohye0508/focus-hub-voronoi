@@ -446,7 +446,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     // GPS button Youth Mode
     youthGpsBtn.addEventListener('click', () => {
-        if (!cellsGeojson || !sheltersGeojson) return;
+        if (!cellsGeojson || !sheltersGeojson || !mobileRoutesData) return;
         
         if ("geolocation" in navigator) {
             const originalText = youthGpsBtn.innerHTML;
@@ -473,7 +473,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     // Search button Youth Mode
     const handleYouthSearch = async () => {
-        if (!cellsGeojson || !sheltersGeojson) return;
+        if (!cellsGeojson || !sheltersGeojson || !mobileRoutesData) return;
         const query = youthAddressInput.value.trim();
         if (query.length === 0) return;
         
