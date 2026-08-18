@@ -93,6 +93,18 @@ body, html {
     overflow-y: auto;
 }
 
+/* Below ~420px (20px side margins + 380px panel) the fixed-width panel runs off
+   the right edge of the screen and gets clipped by body's overflow:hidden,
+   cutting off/mis-positioning the rightmost card buttons (노선 보기, 길찾기). */
+@media (max-width: 460px) {
+    .admin-panel,
+    .youth-panel {
+        left: 12px;
+        right: 12px;
+        width: auto;
+    }
+}
+
 /* Start Screen Overlay */
 .start-screen-overlay {
     position: fixed;
