@@ -375,30 +375,27 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const driveTime = Math.max(1, Math.round((s.distKm / 30) * 60)); // 30km/h driving
                 const isMobile = s.is_mobile === true; // Check mobile context
                 
-                // Determine if there is route data for this shelter
-                const hasRoute = mobileRoutesData && mobileRoutesData.shelters.some(r => r.shelter_name === s.name);
-                
-                // Determine open status based on hours
-                const charCodeSum = s.name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-                const is24h = charCodeSum % 2 === 0;
-                
-                let isOpen = true;
-                const now = new Date();
-                const hour = now.getHours();
-                const day = now.getDay();
-                if (!is24h) {
-                    const isWeekday = day >= 1 && day <= 5;
-                    const isWorkingHour = hour >= 9 && hour < 18;
-                    isOpen = isWeekday && isWorkingHour;
-                }
-                
+                // Find route data for this shelter (mobile shelters only)
+                const route = mobileRoutesData ? mobileRoutesData.shelters.find(r => r.shelter_name === s.name) : null;
+                const hasRoute = !!route;
+
+                // Determine open status. Fixed (고정형) shelters provide round-the-clock
+                // intake, so they're always open. Mobile (이동형) shelters are only "open"
+                // while the bus is actually parked at one of today's stops.
+                const isOpen = isMobile
+                    ? (hasRoute && route.stops.some(stop => checkIsNowHere(stop.arrive, stop.depart, stop.days)))
+                    : true;
+
                 const statusClass = isOpen ? "open-badge" : "closed-badge";
                 const statusText = isOpen ? "운영 중" : "운영 종료";
                 const cardClass = isOpen ? "" : "closed";
-                
-                // Kakao's "link/to" (route) fallback drops coordinates when the app isn't
-                // installed, defaulting the map to Seoul. "link/map" (location pin) preserves
-                // the coordinates in that same fallback, so use it instead.
+
+                // "link/map" (location pin) is the only Kakao Map link type that shows the
+                // correct destination even when the Kakao Map app isn't installed - "link/to"
+                // and "link/from/.../to/" both go through Kakao's own app-install interstitial,
+                // whose "설치없이 지도보기" fallback drops all coordinates and lands on the
+                // default Seoul view. Once the pin opens correctly, Kakao Map's own UI already
+                // offers a 길찾기 button that uses the visitor's GPS as the starting point.
                 const routeUrl = `https://map.kakao.com/link/map/${encodeURIComponent(s.name)},${s.lat},${s.lng}`;
                 
                 html += `

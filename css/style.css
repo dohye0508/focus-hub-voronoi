@@ -385,13 +385,17 @@ body, html {
     flex: 1;
     background: rgba(255, 255, 255, 0.04);
     border: 1px solid var(--panel-border);
-    color: #fff;
+    color: var(--text-primary);
     padding: 10px 14px;
     border-radius: 8px;
     outline: none;
     font-size: 0.85rem;
     box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
     transition: border-color 0.2s;
+}
+
+.search-input::placeholder {
+    color: var(--text-muted);
 }
 
 .search-input:focus {
@@ -759,6 +763,10 @@ body.light-mode .support-1388-box h4 {
 
 body.light-mode .support-1388-box p {
     color: #475569;
+}
+
+body.light-mode .search-input {
+    background: rgba(15, 23, 42, 0.04);
 }
 
 /* Floating Theme Toggle Button */
