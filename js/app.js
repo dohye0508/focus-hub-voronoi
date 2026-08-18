@@ -396,7 +396,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const statusText = isOpen ? "운영 중" : "운영 종료";
                 const cardClass = isOpen ? "" : "closed";
                 
-                const routeUrl = `https://map.kakao.com/link/to/${encodeURIComponent(s.name)},${s.lat},${s.lng}`;
+                // Kakao's "link/to" (route) fallback drops coordinates when the app isn't
+                // installed, defaulting the map to Seoul. "link/map" (location pin) preserves
+                // the coordinates in that same fallback, so use it instead.
+                const routeUrl = `https://map.kakao.com/link/map/${encodeURIComponent(s.name)},${s.lat},${s.lng}`;
                 
                 html += `
                     <div class="shelter-card ${cardClass}" id="card-${s.name.replace(/\s+/g, '')}" style="cursor:pointer;">
