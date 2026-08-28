@@ -9,9 +9,9 @@ permissions:
   contents: read
 
 jobs:
-  capture:
+  test-sections:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 18
     steps:
       - uses: actions/setup-node@v4
         with:
@@ -21,96 +21,92 @@ jobs:
           npm init -y
           npm install playwright@1.55.0
           npx playwright install --with-deps chromium
-      - name: Capture corrected WebODV outputs
+      - name: Test section configurations
         continue-on-error: true
         run: |
-          mkdir -p webodv-output
-          cat > capture.mjs <<'JS'
+          mkdir -p section-tests
+          cat > test.mjs <<'JS'
           import { chromium } from 'playwright';
           import fs from 'node:fs';
-          import path from 'node:path';
-          const OUT='webodv-output';
           const URL='https://explore.webodv.awi.de/ocean/woa18/0.25-degree/1_all-years/1_annual/woa18_0.25deg_all-years_annual/';
           const browser=await chromium.launch({headless:true});
-          const context=await browser.newContext({viewport:{width:1920,height:1080},locale:'en-US',timezoneId:'UTC',ignoreHTTPSErrors:true,acceptDownloads:true});
+          const context=await browser.newContext({viewport:{width:1920,height:1080},locale:'en-US',timezoneId:'UTC',ignoreHTTPSErrors:true});
           const page=await context.newPage();
-          const report={started:new Date().toISOString(),captures:[],errors:[],logs:[]};
-          page.on('console',m=>report.logs.push(`[console:${m.type()}] ${m.text()}`));
-          page.on('pageerror',e=>report.logs.push(`[pageerror] ${e.stack||e.message}`));
-          page.on('requestfailed',r=>report.logs.push(`[requestfailed] ${r.url()} :: ${r.failure()?.errorText}`));
-          const err=(stage,e)=>{const s=String(e?.stack||e);report.errors.push({stage,error:s});console.error(stage,s);};
+          const frames=[]; const logs=[];
+          page.on('console',m=>logs.push(`[${m.type()}] ${m.text()}`));
+          page.on('websocket',ws=>{
+            ws.on('framesent',e=>{const p=String(e.payload);if(p.includes('set_section'))frames.push({time:Date.now(),dir:'sent',payload:p});});
+            ws.on('framereceived',e=>{if(typeof e.payload==='string'){const p=e.payload;if(p.includes('execute_option')||p.includes('set_section')||p.includes('Manage Section'))frames.push({time:Date.now(),dir:'received',payload:p});}});
+          });
           const sleep=ms=>page.waitForTimeout(ms);
-          async function waitReady(){await page.waitForFunction(()=>{try{return typeof app!=='undefined'&&app.websocket?.readyState===1&&typeof coll!=='undefined'&&!!coll.name&&typeof view!=='undefined'&&document.getElementById('ImageArea')?.src?.startsWith('data:image/');}catch{return false;}},null,{timeout:180000});await sleep(5000);}
-          async function waitCanvas(ms=5000){await page.waitForFunction(()=>{try{return appState.isCnvsReady?.()&&document.getElementById('ImageArea')?.src?.startsWith('data:image/');}catch{return false;}},null,{timeout:600000});await sleep(ms);}
-          async function snapshot(name,extra={}){const state=await page.evaluate(()=>({collection:coll.name,viewName:viewHistory.currentName(),section:view.section?{name:view.section.name,type:view.section.type,width:view.section.width,bathyType:view.section.bathyType,bathyColor:view.section.bathyColor,xNodes:view.section.xNodes,yNodes:view.section.yNodes,valid:view.section.isValid?.(),xml:view.section.toXml?.()}:null,windows:(view.dataWinArr||[]).map((w,i)=>({i:i+1,scope:w.scope,plotMode:w.plotMode,xvId:w.xvId,yvId:w.yvId,zvId:w.zvId,xLbl:w.xLbl,yLbl:w.yLbl,zLbl:w.zLbl,xkvId:w.xkvId,ykvId:w.ykvId,zkvId:w.zkvId,xRev:w.xRev,yRev:w.yRev,zRev:w.zRev,xml:w.toXml?.(i+1)})),viewXml:view.toXml(),rects:ui.odvCnvsRects}));fs.writeFileSync(path.join(OUT,`${name}.json`),JSON.stringify({extra,state},null,2));await page.locator('#ImageArea').screenshot({path:path.join(OUT,`${name}-canvas.png`)});return state;}
-          async function exportWin(win,name,extra={}){let ok=false;try{const p=page.waitForEvent('download',{timeout:600000});await page.evaluate(win=>app.sendWsMsg(Msg.exportGraphics(win,'png',180,'normal',false)),win);const d=await p;await d.saveAs(path.join(OUT,`${name}.png`));ok=true;}catch(e){err(`export:${name}`,e);}const state=await snapshot(name,extra);report.captures.push({name,exported:ok,extra,state});}
-          async function setDomain(w,e,s,n){const before=await page.evaluate(()=>viewHistory.size());await page.evaluate(({w,e,s,n})=>app.sendWsMsg(Msg.setMapDomain(w,e,s,n)+','+Msg.msgGetCanvasCurrInfo),{w,e,s,n});await page.waitForFunction(before=>viewHistory.size()>before,before,{timeout:300000});await waitCanvas(5000);}
-          async function layout(option){const before=await page.evaluate(()=>viewHistory.size());await page.evaluate(option=>app.layoutApply(option),option);await page.waitForFunction(before=>viewHistory.size()>before&&view.dataWinArr?.length>0,before,{timeout:300000});await waitCanvas(6000);}
-          async function setAxis(axis,value,reverse=false,expected=''){
-            const before=await page.evaluate(()=>viewHistory.size());
-            const diag=await page.evaluate(({axis,value,reverse})=>{
-              ui.rclickWinId=1;
-              DlgAxisVar.show(1,axis);
-              const sel=document.getElementById('vId'); const rev=document.getElementById('rev');
-              const options=Array.from(sel?.options||[]).map(o=>({value:o.value,text:o.text}));
-              if(!sel)throw new Error('vId select missing');
-              sel.value=String(value); sel.dispatchEvent(new Event('change',{bubbles:true}));
-              if(rev) rev.checked=true;
-              DlgAxisVar.onApply(axis,false);
-              return {options,selected:value};
-            },{axis,value,reverse});
-            fs.writeFileSync(path.join(OUT,`axis-${axis}-${value}.json`),JSON.stringify(diag,null,2));
-            const key=axis==='X'?'xvId':axis==='Y'?'yvId':'zvId'; const lbl=axis==='X'?'xLbl':axis==='Y'?'yLbl':'zLbl';
-            await page.waitForFunction(({before,key,value,expected,lbl})=>{const w=view.dataWinArr?.[0];return !!w&&w[key]===value&&(!expected||String(w[lbl]||'').toLowerCase().includes(expected.toLowerCase()));},{before,key,value,expected,lbl},{timeout:300000});
-            await waitCanvas(6000);
+          const report={started:new Date().toISOString(),tests:[],errors:[],methods:{}};
+          try{
+            await page.goto(URL,{waitUntil:'domcontentloaded',timeout:150000});
+            await page.waitForFunction(()=>{try{return typeof app!=='undefined'&&app.websocket?.readyState===1&&typeof coll!=='undefined'&&!!coll.name&&typeof view!=='undefined'&&document.getElementById('ImageArea')?.src?.startsWith('data:image/');}catch{return false;}},null,{timeout:180000});
+            await sleep(5000);
+            report.methods=await page.evaluate(()=>({
+              defSectionStart:app.defSectionStart.toString(),
+              defSectionProps:app.defSectionProps.toString(),
+              defSectionFinish:app.defSectionFinish.toString(),
+              processWebSocketTextMessage:app.processWebSocketTextMessage.toString(),
+              processUpEvent:app.processUpEvent.toString(),
+              xPixh2Pixo:ui.xPixh2Pixo.toString(),
+              yPixh2Pixo:ui.yPixh2Pixo.toString(),
+              createSection:Msg.createSection.toString()
+            }));
+            const reset=async()=>{
+              await page.evaluate(()=>app.onViewLoad('$FullScreenMap$'));
+              await sleep(7000);
+              const before=await page.evaluate(()=>viewHistory.size());
+              await page.evaluate(()=>app.sendWsMsg(Msg.setMapDomain(128,140,33,44)+','+Msg.msgGetCanvasCurrInfo));
+              await page.waitForFunction(b=>viewHistory.size()>b,before,{timeout:180000});
+              await sleep(5000);
+            };
+            const cases=[
+              {name:'lat37_width20_lon',lat:37,width:20,type:1},
+              {name:'lat37_125_width20_lon',lat:37.125,width:20,type:1},
+              {name:'lat36_875_width20_lon',lat:36.875,width:20,type:1},
+              {name:'lat37_width30_lon',lat:37,width:30,type:1},
+              {name:'lat37_width40_lon',lat:37,width:40,type:1},
+              {name:'lat37_width20_distance',lat:37,width:20,type:0}
+            ];
+            for(const c of cases){
+              try{
+                await reset();
+                const setup=await page.evaluate(c=>{
+                  const r=ui.odvCnvsRects[0];
+                  const x1=r.left+(130-128)/(140-128)*(r.right-r.left);
+                  const x2=r.left+(138-128)/(140-128)*(r.right-r.left);
+                  const y=r.bottom-(c.lat-33)/(44-33)*(r.bottom-r.top);
+                  const command={cmd:'execute_option',option:'set_section',description:'Manage Section',name:c.name,type:c.type,km_width:c.width,bathy_type:3,bathy_color:17,x_coords:[x1,x2],y_coords:[y,y]};
+                  const before=viewHistory.size();
+                  app.sendWsMsg(JSON.stringify(command)+','+Msg.msgGetDockDataVarLbls+','+Msg.msgGetCanvasCurrInfo);
+                  return {rect:r,x1,x2,y,before,command};
+                },c);
+                await sleep(12000);
+                const state=await page.evaluate(()=>({
+                  history:viewHistory.size(),
+                  section:view.section?{name:view.section.name,type:view.section.type,width:view.section.width,bathyType:view.section.bathyType,xNodes:view.section.xNodes,yNodes:view.section.yNodes,valid:view.section.isValid?.(),xml:view.section.toXml?.()}:null,
+                  viewXml:view.toXml(),selectedStations:viewInfo.valStationCount,dataWinCount:view.dataWinArr.length,
+                  bodyText:document.body.innerText.slice(-800)
+                }));
+                const related=frames.filter(f=>f.time>=Date.now()-20000).map(f=>f);
+                report.tests.push({case:c,setup,state,relatedFrames:related});
+                fs.writeFileSync(`section-tests/${c.name}.json`,JSON.stringify({case:c,setup,state,relatedFrames:related},null,2));
+                await page.locator('#ImageArea').screenshot({path:`section-tests/${c.name}.png`});
+              }catch(e){report.errors.push({case:c,error:String(e?.stack||e)});}
+            }
+          }catch(e){report.errors.push({stage:'main',error:String(e?.stack||e)});}finally{
+            report.frames=frames;report.logs=logs;report.finished=new Date().toISOString();
+            fs.writeFileSync('section-tests/report.json',JSON.stringify(report,null,2));
+            await browser.close();
           }
-          async function captureTS(name,domain){
-            await page.evaluate(()=>app.onViewLoad('$FullScreenMap$')); await sleep(10000); await waitCanvas(3000);
-            await setDomain(domain.w,domain.e,domain.s,domain.n); await layout('miOneScatterWin');
-            await setAxis('X',2,false,'Salinity');
-            await setAxis('Y',1,false,'Temperature');
-            await setAxis('Z',0,true,'Depth');
-            const verified=await page.evaluate(()=>{const w=view.dataWinArr[0];return {x:w.xvId,y:w.yvId,z:w.zvId,xLbl:w.xLbl,yLbl:w.yLbl,zLbl:w.zLbl,xml:view.toXml()};});
-            if(verified.x!==2||verified.y!==1||verified.z!==0||!/Salinity/i.test(verified.xLbl)||!/Temperature/i.test(verified.yLbl)||!/Depth/i.test(verified.zLbl))throw new Error(`T-S verification failed ${JSON.stringify(verified)}`);
-            await exportWin(1,name,{domain,axes:'X=Salinity, Y=Temperature, Z=Depth'});
-          }
-          async function trySection(nodesMode){
-            await page.evaluate(()=>app.onViewLoad('$FullScreenMap$'));await sleep(10000);await waitCanvas(3000);await setDomain(128,140,33,44);
-            const candidate=await page.evaluate(mode=>{
-              const r=ui.odvCnvsRects[0];
-              const x1=r.left+(130-128)/(140-128)*(r.right-r.left);
-              const x2=r.left+(138-128)/(140-128)*(r.right-r.left);
-              const y=r.bottom-(37-33)/(44-33)*(r.bottom-r.top);
-              const sec=new Section(); sec.setVals(`37N_${mode}`,1,20,3,17);
-              if(mode==='pixel'){sec.xNodes=[x1,x2];sec.yNodes=[y,y];}
-              else {sec.xNodes=[130,138];sec.yNodes=[37,37];}
-              view.section=sec; const xml=view.toXml(); const before=viewHistory.size();
-              app.sendWsMsg(Msg.loadView(xml,`37N_${mode}`,`37N section ${mode} nodes`));
-              return {before,rect:r,x1,x2,y,sectionXml:sec.toXml(),viewXml:xml};
-            },nodesMode);
-            fs.writeFileSync(path.join(OUT,`section-candidate-${nodesMode}.json`),JSON.stringify(candidate,null,2));
-            await sleep(15000); await waitCanvas(3000);
-            const state=await snapshot(`section-after-${nodesMode}`,candidate);
-            return !!state.section?.valid;
-          }
-          async function captureSections(){
-            let mode='pixel';let valid=await trySection(mode);if(!valid){mode='geographic';valid=await trySection(mode);}if(!valid)throw new Error('Both pixel and geographic Section XML candidates were rejected');
-            await layout('miOneSectionWin');
-            await page.evaluate(()=>{const w=view.dataWinArr[0];w.plotMode=7;w.autoScale='T';w.xScale=2;w.yScale=2;w.isopycnicGridding='F';w.drawShaded='T';w.drawContours='T';w.autoContours='T';w.contours=[];w.drawMarks='F';w.hideBad='T';w.hideDistance=3;w.DivaNonNegativity='F';w.DivaSnr=50;w.DivaUseSecPoly='T';w.DivaBathyFile='GEBCO_2023_2x2min_Global.nc';w.DivaBathyVal=App.missDOUBLE;});
-            await setAxis('Z',1,false,'Temperature');
-            await page.evaluate(()=>app.sendWsMsg(Msg.loadView(view.toXml(),'37N_temperature_DIVA','37N Temperature DIVA')));await sleep(20000);await waitCanvas(10000);
-            await exportWin(1,'06-37N-temperature-section',{section:'37N 130E-138E',variable:'Temperature',nodesMode:mode,gridding:'DIVA'});
-            await setAxis('Z',2,false,'Salinity');
-            await page.evaluate(()=>app.sendWsMsg(Msg.loadView(view.toXml(),'37N_salinity_DIVA','37N Salinity DIVA')));await sleep(20000);await waitCanvas(10000);
-            await exportWin(1,'07-37N-salinity-section',{section:'37N 130E-138E',variable:'Salinity',nodesMode:mode,gridding:'DIVA'});
-          }
-          try{await page.goto(URL,{waitUntil:'domcontentloaded',timeout:150000});await waitReady();try{await captureTS('04-east-sea-TS',{w:127.5,e:142,s:33,n:48});}catch(e){err('east-TS',e);}try{await captureTS('05-west-sea-TS',{w:119,e:127.5,s:31,n:42});}catch(e){err('west-TS',e);}try{await captureSections();}catch(e){err('sections',e);}}catch(e){err('main',e);}finally{report.finished=new Date().toISOString();fs.writeFileSync(path.join(OUT,'capture-report.json'),JSON.stringify(report,null,2));await browser.close();}
           JS
-          node capture.mjs > webodv-output/stdout.txt 2> webodv-output/stderr.txt
-      - name: Upload corrected captures
+          node test.mjs > section-tests/stdout.txt 2> section-tests/stderr.txt
+      - name: Upload tests
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: webodv-correct-final
-          path: webodv-output
+          name: webodv-section-tests
+          path: section-tests
           retention-days: 1
