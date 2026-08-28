@@ -23,6 +23,7 @@ jobs:
           npm install playwright@1.55.0
           npx playwright install --with-deps chromium
       - name: Inspect WebODV internals
+        continue-on-error: true
         run: |
           mkdir -p webodv-output
           cat > inspect.mjs <<'JS'
@@ -32,47 +33,54 @@ jobs:
           const browser=await chromium.launch({headless:true});
           const context=await browser.newContext({viewport:{width:1920,height:1080},locale:'en-US',timezoneId:'UTC',ignoreHTTPSErrors:true});
           const page=await context.newPage();
-          await page.goto(URL,{waitUntil:'domcontentloaded',timeout:150000});
-          await page.waitForFunction(()=>typeof app!=='undefined'&&app.websocket?.readyState===1&&typeof coll!=='undefined'&&coll.dataVarCount?.()>0&&typeof view!=='undefined',{timeout:180000});
-          await page.waitForTimeout(5000);
-          const out=await page.evaluate(()=>{
-            const f=x=>{try{return x?.toString?.()||String(x);}catch(e){return 'ERR '+e;}};
-            const keys=o=>{try{return Object.keys(o||{});}catch(e){return ['ERR '+e];}};
-            const desc=o=>{try{return Object.getOwnPropertyNames(o||{});}catch(e){return ['ERR '+e];}};
-            const s=new Section();
-            const dw=new DataWindow();
-            return {
-              SectionClass:f(Section),
-              SectionKeys:keys(s),
-              SectionOwnNames:desc(s),
-              SectionPrototypeNames:desc(Section.prototype),
-              SectionMethods:Object.fromEntries(desc(Section.prototype).filter(k=>k!=='constructor').map(k=>[k,f(Section.prototype[k])])),
-              SectionInitial:Object.fromEntries(keys(s).map(k=>[k,s[k]])),
-              DlgSecPropsClass:typeof DlgSecProps!=='undefined'?f(DlgSecProps):'missing',
-              DlgSecPropsMethods:typeof DlgSecProps!=='undefined'?Object.fromEntries(desc(DlgSecProps).filter(k=>typeof DlgSecProps[k]==='function').map(k=>[k,f(DlgSecProps[k])])):{},
-              DataWindowClass:f(DataWindow),
-              DataWindowKeys:keys(dw),
-              DataWindowPrototypeNames:desc(DataWindow.prototype),
-              DataWindowMethods:Object.fromEntries(desc(DataWindow.prototype).filter(k=>k!=='constructor').map(k=>[k,f(DataWindow.prototype[k])])),
-              DataWindowInitial:Object.fromEntries(keys(dw).map(k=>[k,dw[k]])),
-              ViewMethods:Object.fromEntries(desc(View.prototype).filter(k=>k!=='constructor').map(k=>[k,f(View.prototype[k])])),
-              MsgMethods:Object.fromEntries(desc(Msg).filter(k=>typeof Msg[k]==='function').map(k=>[k,f(Msg[k])])),
-              AppMethods:Object.fromEntries(desc(App.prototype).filter(k=>k!=='constructor').map(k=>[k,f(App.prototype[k])])),
-              UiMethods:Object.fromEntries(desc(Ui.prototype).filter(k=>k!=='constructor'&&['toOdvCanvasX','toOdvCanvasY','toHtmlCanvasX','toHtmlCanvasY','startPointGetting','finishPointGettingOrZooming','createMenuItems','showMenu'].includes(k)).map(k=>[k,f(Ui.prototype[k])])),
-              constants:{VID_NONE:App.VID_NONE,VID_FIRSTDRVD:App.VID_FIRSTDRVD,VID_SECTION_COORD:App.VID_SECTION_COORD,missDOUBLE:App.missDOUBLE,largeDOUBLE:App.largeDOUBLE},
-              menuElements:Array.from(document.querySelectorAll('[id]')).map(e=>({id:e.id,text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,200),tag:e.tagName,class:e.className})).filter(x=>/^mi|Menu$|Layout|Surface|Scatter|Section|Station/i.test(x.id)||/(surface|scatter|section|station|layout)/i.test(x.text)).slice(0,1000),
-              currentViewXml:view.toXml(),
-              currentMap:{rects:ui.odvCnvsRects,vwpRects:ui.vwpRects,userRects:ui.userRects,odvPixPerHtmlPix:ui.odvPixPerHtmlPix,img:{left:ui.imgOdvCnvsLeft,right:ui.imgOdvCnvsRight,top:ui.imgOdvCnvsTop,bottom:ui.imgOdvCnvsBottom},html:{width:ui.imgArea.width,height:ui.imgArea.height,offsetLeft:ui.imgArea.offsetLeft,offsetTop:ui.imgArea.offsetTop}},
-            };
-          });
-          fs.writeFileSync('webodv-output/internals.json',JSON.stringify(out,null,2));
-          await page.screenshot({path:'webodv-output/full-page.png',fullPage:true});
+          const report={errors:[]};
+          try{
+            await page.goto(URL,{waitUntil:'domcontentloaded',timeout:150000});
+            await page.waitForFunction(()=>{try{return typeof app!=='undefined'&&app.websocket?.readyState===1&&typeof coll!=='undefined'&&coll?.dataVarArr?.count>0&&typeof view!=='undefined'&&document.getElementById('ImageArea')?.src?.startsWith('data:image/');}catch{return false;}},{timeout:180000});
+            await page.waitForTimeout(5000);
+            const out=await page.evaluate(()=>{
+              const f=x=>{try{return x?.toString?.()||String(x);}catch(e){return 'ERR '+e;}};
+              const keys=o=>{try{return Object.keys(o||{});}catch(e){return ['ERR '+e];}};
+              const desc=o=>{try{return Object.getOwnPropertyNames(o||{});}catch(e){return ['ERR '+e];}};
+              const safeValue=(o,k)=>{try{const v=o[k];if(typeof v==='function')return f(v);if(v===null||['string','number','boolean'].includes(typeof v))return v;if(Array.isArray(v))return v;return JSON.parse(JSON.stringify(v));}catch(e){return 'ERR '+e;}};
+              let s=null,dw=null;
+              try{s=new Section();}catch(e){s={constructorError:String(e?.stack||e)};}
+              try{dw=new DataWindow();}catch(e){dw={constructorError:String(e?.stack||e)};}
+              return {
+                SectionClass:f(Section),
+                SectionKeys:keys(s),
+                SectionOwnNames:desc(s),
+                SectionPrototypeNames:desc(Section.prototype),
+                SectionMethods:Object.fromEntries(desc(Section.prototype).filter(k=>k!=='constructor').map(k=>[k,f(Section.prototype[k])])),
+                SectionInitial:Object.fromEntries(keys(s).map(k=>[k,safeValue(s,k)])),
+                DlgSecPropsClass:typeof DlgSecProps!=='undefined'?f(DlgSecProps):'missing',
+                DlgSecPropsMethods:typeof DlgSecProps!=='undefined'?Object.fromEntries(desc(DlgSecProps).filter(k=>typeof DlgSecProps[k]==='function').map(k=>[k,f(DlgSecProps[k])])):{},
+                DataWindowClass:f(DataWindow),
+                DataWindowKeys:keys(dw),
+                DataWindowPrototypeNames:desc(DataWindow.prototype),
+                DataWindowMethods:Object.fromEntries(desc(DataWindow.prototype).filter(k=>k!=='constructor').map(k=>[k,f(DataWindow.prototype[k])])),
+                DataWindowInitial:Object.fromEntries(keys(dw).map(k=>[k,safeValue(dw,k)])),
+                ViewMethods:Object.fromEntries(desc(View.prototype).filter(k=>k!=='constructor').map(k=>[k,f(View.prototype[k])])),
+                MsgMethods:Object.fromEntries(desc(Msg).filter(k=>typeof Msg[k]==='function').map(k=>[k,f(Msg[k])])),
+                AppMethods:Object.fromEntries(desc(App.prototype).filter(k=>k!=='constructor').map(k=>[k,f(App.prototype[k])])),
+                UiMethods:Object.fromEntries(desc(Ui.prototype).filter(k=>k!=='constructor'&&['toOdvCanvasX','toOdvCanvasY','toHtmlCanvasX','toHtmlCanvasY','startPointGetting','finishPointGettingOrZooming','createMenuItems','showMenu'].includes(k)).map(k=>[k,f(Ui.prototype[k])])),
+                constants:{VID_NONE:App.VID_NONE,VID_FIRSTDRVD:App.VID_FIRSTDRVD,VID_SECTION_COORD:App.VID_SECTION_COORD,missDOUBLE:App.missDOUBLE,largeDOUBLE:App.largeDOUBLE},
+                menuElements:Array.from(document.querySelectorAll('[id]')).map(e=>({id:e.id,text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,300),tag:e.tagName,class:String(e.className||'')})).filter(x=>/^mi|Menu$|Layout|Surface|Scatter|Section|Station/i.test(x.id)||/(surface|scatter|section|station|layout)/i.test(x.text)).slice(0,1500),
+                currentViewXml:view.toXml(),
+                currentCollection:{name:coll.name,dataVarCount:coll.dataVarArr?.count,dataVarLabels:coll.basicDataVarFullLabels?.(),metaVarCount:coll.metaVarArr?.count},
+                currentMap:{rects:ui.odvCnvsRects,odvPixPerHtmlPix:ui.odvPixPerHtmlPix,img:{left:ui.imgOdvCnvsLeft,right:ui.imgOdvCnvsRight,top:ui.imgOdvCnvsTop,bottom:ui.imgOdvCnvsBottom},html:{width:ui.imgArea.width,height:ui.imgArea.height,offsetLeft:ui.imgArea.offsetLeft,offsetTop:ui.imgArea.offsetTop}},
+              };
+            });
+            fs.writeFileSync('webodv-output/internals.json',JSON.stringify(out,null,2));
+            await page.screenshot({path:'webodv-output/full-page.png',fullPage:true});
+          }catch(e){report.errors.push(String(e?.stack||e));fs.writeFileSync('webodv-output/error.json',JSON.stringify(report,null,2));}
           await browser.close();
           JS
-          node inspect.mjs
+          node inspect.mjs > webodv-output/stdout.txt 2> webodv-output/stderr.txt
       - name: Upload diagnostic
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: webodv-internals
+          name: webodv-internals-safe
           path: webodv-output
           retention-days: 1
