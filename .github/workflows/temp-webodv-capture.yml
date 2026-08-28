@@ -11,7 +11,7 @@ permissions:
 jobs:
   capture:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,188 +22,41 @@ jobs:
           npm init -y
           npm install playwright@1.55.0
           npx playwright install --with-deps chromium
-      - name: Capture verified figures from official WebODV
+      - name: Capture official WebODV canvases with verified variables
         continue-on-error: true
         run: |
-          mkdir -p webodv-verified
-          cat > capture-verified.mjs <<'JS'
+          mkdir -p webodv-fast
+          cat > capture-fast.mjs <<'JS'
           import { chromium } from 'playwright';
           import fs from 'node:fs';
-
-          const OUT='webodv-verified';
+          const OUT='webodv-fast';
           const URL='https://explore.webodv.awi.de/ocean/woa18/0.25-degree/1_all-years/1_annual/woa18_0.25deg_all-years_annual/';
           const report={started:new Date().toISOString(),captures:[],errors:[],dialogs:[]};
           const browser=await chromium.launch({headless:true});
-          const saveJson=(name,value)=>fs.writeFileSync(`${OUT}/${name}.json`,JSON.stringify(value,null,2));
-          const record=(name,e)=>{const s=String(e?.stack||e);report.errors.push({name,error:s});console.error(`FAILED ${name}: ${s}`);saveJson('capture-report',report);};
-
-          async function openDataset(){
-            const context=await browser.newContext({viewport:{width:1920,height:1080},locale:'en-US',timezoneId:'UTC',ignoreHTTPSErrors:true,acceptDownloads:true});
-            const page=await context.newPage();
-            const logs=[];
-            page.on('console',m=>logs.push(`[console:${m.type()}] ${m.text()}`));
-            page.on('pageerror',e=>logs.push(`[pageerror] ${e.stack||e.message}`));
-            page.on('requestfailed',r=>logs.push(`[requestfailed] ${r.url()} :: ${r.failure()?.errorText}`));
-            await page.goto(URL,{waitUntil:'domcontentloaded',timeout:180000});
-            await page.waitForFunction(()=>{try{return typeof app!=='undefined'&&app.websocket?.readyState===1&&typeof coll!=='undefined'&&coll.dataVars?.count>0&&typeof view!=='undefined'&&document.getElementById('ImageArea')?.naturalWidth>0;}catch{return false;}},null,{timeout:240000});
-            await page.waitForTimeout(4000);
-            return {context,page,logs};
-          }
-
-          async function waitCanvas(page,oldSrc='',extraDelay=4000,timeout=900000){
-            await page.waitForFunction(()=>{try{return appState.current()===AppState.Ready&&document.getElementById('ImageArea')?.naturalWidth>0;}catch{return false;}},null,{timeout});
-            if(oldSrc){
-              await page.waitForFunction(old=>{const i=document.getElementById('ImageArea');return i?.naturalWidth>0&&i.src!==old;},oldSrc,{timeout}).catch(()=>{});
-            }
-            await page.waitForTimeout(extraDelay);
-          }
-
-          async function setDomain(page,d){
-            const old=await page.locator('#ImageArea').getAttribute('src');
-            await page.evaluate(d=>app.sendWsMsg(Msg.setMapDomain(d.w,d.e,d.s,d.n)+','+Msg.msgGetCanvasCurrInfo),d);
-            await page.waitForFunction(d=>{try{return Math.abs(view.mapWin.wLon-d.w)<.01&&Math.abs(view.mapWin.eLon-d.e)<.01&&Math.abs(view.mapWin.sLat-d.s)<.01&&Math.abs(view.mapWin.nLat-d.n)<.01;}catch{return false;}},d,{timeout:300000});
-            await waitCanvas(page,old,4000,300000);
-          }
-
-          async function layout(page,id,count){
-            const old=await page.locator('#ImageArea').getAttribute('src');
-            await page.evaluate(id=>app.layoutApply(id),id);
-            await page.waitForFunction(count=>{try{return view.dataWinArr?.length===count;}catch{return false;}},count,{timeout:300000});
-            await waitCanvas(page,old,4000,300000);
-          }
-
-          async function setAxis(page,winId,axis,varId,matchingText,reverse=false,label='axis'){
-            const prop={X:'xvId',Y:'yvId',Z:'zvId'}[axis];
-            const old=await page.locator('#ImageArea').getAttribute('src');
-            await page.evaluate(({winId,axis})=>{ui.rclickWinId=winId;DlgAxisVar.show(winId,axis);},{winId,axis});
-            await page.waitForFunction(()=>{const s=document.getElementById('vId');if(!s)return false;const r=s.getBoundingClientRect();return r.width>0&&r.height>0;},null,{timeout:60000});
-            const diag=await page.evaluate(({axis,varId,matchingText,reverse})=>{
-              const s=document.getElementById('vId');
-              const options=Array.from(s.options).map(o=>({value:o.value,text:o.text}));
-              const option=Array.from(s.options).find(o=>Number(o.value)===Number(varId))||Array.from(s.options).find(o=>o.text.toLowerCase().includes(matchingText.toLowerCase()));
-              if(!option)return {ok:false,options,axis,varId,matchingText};
-              s.value=option.value;s.dispatchEvent(new Event('change',{bubbles:true}));
-              const rev=document.getElementById('rev');if(rev)rev.checked=reverse;
-              return {ok:true,selected:{value:option.value,text:option.text},options,axis,varId,matchingText,reverse};
-            },{axis,varId,matchingText,reverse});
-            report.dialogs.push({label,...diag});saveJson(`dialog-${label}`,diag);
-            if(!diag.ok)throw new Error(`No ${axis} option for ${matchingText} (${varId})`);
-            await page.evaluate(axis=>DlgAxisVar.onApply(axis,false),axis);
-            await page.waitForFunction(({winId,prop,varId})=>{try{return Number(view.dataWinArr[winId-1]?.[prop])===Number(varId)&&appState.current()===AppState.Ready;}catch{return false;}},{winId,prop,varId},{timeout:600000});
-            await waitCanvas(page,old,4000,600000);
-          }
-
-          async function saveCanvas(page,name,extra={}){
-            const state=await page.evaluate(extra=>{
-              const img=document.getElementById('ImageArea');
-              const variables=(id,scope)=>{
-                try{
-                  if(id===App.VID_SECTION_COORD)return 'Section Longitude';
-                  if(scope===3){const labels=ui.dockIsoVarLabels||[];return labels[id]||`iso:${id}`;}
-                  const v=coll.dataVar(id);return v?`${v.uname||v.name} [${v.uunits||v.units||''}]`:`var:${id}`;
-                }catch{return `var:${id}`;}
-              };
-              return {
-                src:img.src,naturalWidth:img.naturalWidth,naturalHeight:img.naturalHeight,
-                collection:coll.name,mapDomain:{w:view.mapWin.wLon,e:view.mapWin.eLon,s:view.mapWin.sLat,n:view.mapWin.nLat},
-                section:view.section?{name:view.section.name,type:view.section.type,width:view.section.width,bathyType:view.section.bathyType,bathyColor:view.section.bathyColor,xNodes:view.section.xNodes,yNodes:view.section.yNodes,valid:view.section.isValid?.(),xml:view.section.isValid?.()?view.section.toXml():''}:null,
-                windows:view.dataWinArr.map((w,k)=>({index:k+1,scope:w.scope,plotMode:w.plotMode,xvId:w.xvId,xLabel:variables(w.xvId,w.scope),yvId:w.yvId,yLabel:variables(w.yvId,w.scope),zvId:w.zvId,zLabel:variables(w.zvId,w.scope),xRev:w.xRev,yRev:w.yRev,zRev:w.zRev,drawShaded:w.drawShaded,drawContours:w.drawContours,autoContours:w.autoContours,DivaUseSecPoly:w.DivaUseSecPoly,DivaBathyFile:w.DivaBathyFile,dataCount:viewInfo.dataCountsByWin?.[k]})),
-                viewXml:view.toXml(),extra
-              };
-            },extra);
-            fs.writeFileSync(`${OUT}/${name}.png`,Buffer.from(state.src.split(',')[1],'base64'));
-            delete state.src;saveJson(name,state);report.captures.push({name,windows:state.windows,extra});saveJson('capture-report',report);
-            return state;
-          }
-
-          async function exportWindow(page,winId,name){
-            try{
-              const pending=page.waitForEvent('download',{timeout:600000});
-              await page.evaluate(winId=>app.sendWsMsg(Msg.exportGraphics(winId,'png',200,'normal',false)),winId);
-              const download=await pending;await download.saveAs(`${OUT}/${name}-window-only.png`);
-              return true;
-            }catch(e){record(`export-${name}`,e);return false;}
-          }
-
-          async function captureTS(name,domain,sea){
-            const {context,page,logs}=await openDataset();
-            try{
-              await setDomain(page,domain);
-              await layout(page,'miOneScatterWin',1);
-              await setAxis(page,1,'X',2,'Salinity',false,`${name}-X-Salinity`);
-              await setAxis(page,1,'Y',1,'Temperature',false,`${name}-Y-Temperature`);
-              await setAxis(page,1,'Z',0,'Depth',true,`${name}-Z-Depth`);
-              const old=await page.locator('#ImageArea').getAttribute('src');
-              await page.evaluate(()=>{
-                const w=view.dataWinArr[0];w.plotMode=0;w.symbSize=.35;w.drawIsop='T';
-                app.sendWsMsg(Msg.loadView(view.toXml(),viewHistory.currentName(),'Verified T-S diagram: X Salinity, Y Temperature, Z Depth'));
-              });
-              await page.waitForFunction(()=>{try{return viewHistory.current()?.descr==='Verified T-S diagram: X Salinity, Y Temperature, Z Depth';}catch{return false;}},null,{timeout:600000});
-              await waitCanvas(page,old,5000,600000);
-              const state=await saveCanvas(page,name,{requested:'X=Salinity, Y=Temperature, Z=Depth',sea,domain,source:'official WebODV'});
-              if(state.windows[0].xvId!==2||state.windows[0].yvId!==1||state.windows[0].zvId!==0)throw new Error('T-S variable verification failed: '+JSON.stringify(state.windows[0]));
-              await exportWindow(page,1,name);
-            }finally{saveJson(`${name}-logs`,logs);await context.close();}
-          }
-
-          async function defineGeographicSection(page){
-            const domain={w:128,e:140,s:33,n:44};
-            await setDomain(page,domain);
-            const old=await page.locator('#ImageArea').getAttribute('src');
-            await page.evaluate(()=>{
-              const sec=new Section();sec.setVals('37N_130E_to_138E',1,20*Section.widthCnvFac,3,17);sec.xNodes=[130,138];sec.yNodes=[37,37];
-              const secXml=sec.toXml();let base=view.toXml();let begin=base.indexOf('<Section')-1,end=base.indexOf('</Section>')+10;
-              if(begin===-2){begin=base.indexOf('</MapWindow>')+12;end=begin;}
-              const loaded=base.slice(0,begin)+secXml+base.slice(end);
-              window.__sectionDiagnostic={sectionXml:secXml,loaded,values:Object.fromEntries(Object.keys(sec).map(k=>[k,sec[k]]))};
-              app.sendWsMsg(Msg.loadView(loaded,viewHistory.currentName(),'Verified geographic 37N section'));
-            });
-            await page.waitForFunction(()=>{try{return viewHistory.current()?.descr==='Verified geographic 37N section'&&view.section?.isValid?.()&&view.section?.xNodes?.length===2;}catch{return false;}},null,{timeout:600000});
-            await waitCanvas(page,old,5000,600000);saveJson('section-definition',await page.evaluate(()=>window.__sectionDiagnostic));
-          }
-
-          async function finalizeSection(page,zId,zText,description){
-            await setAxis(page,1,'X',200000,'Section Longitude',false,`section-X-${zText}`);
-            await setAxis(page,1,'Y',0,'Depth',true,`section-Y-Depth-${zText}`);
-            await setAxis(page,1,'Z',zId,zText,false,`section-Z-${zText}`);
-            const old=await page.locator('#ImageArea').getAttribute('src');
-            await page.evaluate(description=>{
-              view.setDataWinDispStyleGridded(1,7,'T',2,2,'F','T','T',3);
-              const w=view.dataWinArr[0];w.plotMode=7;w.drawShaded='T';w.drawContours='T';w.autoContours='T';w.contours=[];w.DivaUseSecPoly='T';w.DivaBathyFile='GEBCO_2023_2x2min_Global.nc';w.DivaBathyVal=App.missDOUBLE;
-              app.sendWsMsg(Msg.loadView(view.toXml(),viewHistory.currentName(),description));
-            },description);
-            await page.waitForFunction(description=>{try{return viewHistory.current()?.descr===description&&appState.current()===AppState.Ready;}catch{return false;}},description,{timeout:1200000});
-            await waitCanvas(page,old,8000,1200000);
-          }
-
-          async function captureSections(){
-            const {context,page,logs}=await openDataset();
-            try{
-              await defineGeographicSection(page);
-              await layout(page,'miOneSectionWin',1);
-              await finalizeSection(page,1,'Temperature','Verified DIVA temperature section');
-              let state=await saveCanvas(page,'06-37N-temperature-section',{requested:'37N 130E-138E; X=Section Longitude, Y=Depth, Z=Temperature; DIVA; GEBCO bathymetry',source:'official WebODV'});
-              if(!state.section?.valid||state.windows[0].xvId!==200000||state.windows[0].yvId!==0||state.windows[0].zvId!==1)throw new Error('Temperature section verification failed');
-              await exportWindow(page,1,'06-37N-temperature-section');
-
-              await finalizeSection(page,2,'Salinity','Verified DIVA salinity section');
-              state=await saveCanvas(page,'07-37N-salinity-section',{requested:'37N 130E-138E; X=Section Longitude, Y=Depth, Z=Salinity; DIVA; GEBCO bathymetry',source:'official WebODV'});
-              if(!state.section?.valid||state.windows[0].xvId!==200000||state.windows[0].yvId!==0||state.windows[0].zvId!==2)throw new Error('Salinity section verification failed');
-              await exportWindow(page,1,'07-37N-salinity-section');
-            }finally{saveJson('section-logs',logs);await context.close();}
-          }
-
-          async function task(name,fn){try{console.log('START '+name);await fn();console.log('DONE '+name);}catch(e){record(name,e);}}
-          await task('East Sea T-S',()=>captureTS('04-east-sea-TS',{w:127.5,e:142,s:33,n:48},'East Sea'));
-          await task('West Sea T-S',()=>captureTS('05-west-sea-TS',{w:119,e:127.5,s:31,n:42},'West Sea'));
-          await task('37N sections',captureSections);
+          const saveJson=(n,v)=>fs.writeFileSync(`${OUT}/${n}.json`,JSON.stringify(v,null,2));
+          const fail=(n,e)=>{const s=String(e?.stack||e);report.errors.push({name:n,error:s});console.error('FAILED '+n+': '+s);saveJson('capture-report',report);};
+          async function open(){const context=await browser.newContext({viewport:{width:1920,height:1080},locale:'en-US',timezoneId:'UTC',ignoreHTTPSErrors:true});const page=await context.newPage();const logs=[];page.on('console',m=>logs.push(`[console:${m.type()}] ${m.text()}`));page.on('pageerror',e=>logs.push(`[pageerror] ${e.stack||e.message}`));await page.goto(URL,{waitUntil:'domcontentloaded',timeout:180000});await page.waitForFunction(()=>{try{return app.websocket?.readyState===1&&coll.dataVars?.count>0&&typeof view!=='undefined'&&document.getElementById('ImageArea')?.naturalWidth>0;}catch{return false;}},null,{timeout:240000});await page.waitForTimeout(3000);return{context,page,logs};}
+          async function ready(p,old='',delay=3000,timeout=600000){await p.waitForFunction(()=>{try{return appState.current()===AppState.Ready&&document.getElementById('ImageArea')?.naturalWidth>0;}catch{return false;}},null,{timeout});if(old)await p.waitForFunction(o=>document.getElementById('ImageArea')?.src!==o,old,{timeout}).catch(()=>{});await p.waitForTimeout(delay);}
+          async function domain(p,d){const old=await p.locator('#ImageArea').getAttribute('src');await p.evaluate(d=>app.sendWsMsg(Msg.setMapDomain(d.w,d.e,d.s,d.n)+','+Msg.msgGetCanvasCurrInfo),d);await p.waitForFunction(d=>{try{return Math.abs(view.mapWin.wLon-d.w)<.01&&Math.abs(view.mapWin.eLon-d.e)<.01&&Math.abs(view.mapWin.sLat-d.s)<.01&&Math.abs(view.mapWin.nLat-d.n)<.01;}catch{return false;}},d,{timeout:300000});await ready(p,old,2500,300000);}
+          async function layout(p,id,n){const old=await p.locator('#ImageArea').getAttribute('src');await p.evaluate(id=>app.layoutApply(id),id);await p.waitForFunction(n=>view.dataWinArr?.length===n,n,{timeout:300000});await ready(p,old,2500,300000);}
+          async function axis(p,win,letter,id,text,rev,label){const prop={X:'xvId',Y:'yvId',Z:'zvId'}[letter];const old=await p.locator('#ImageArea').getAttribute('src');await p.evaluate(({win,letter})=>{ui.rclickWinId=win;DlgAxisVar.show(win,letter);},{win,letter});await p.waitForFunction(()=>{const s=document.getElementById('vId');if(!s)return false;const r=s.getBoundingClientRect();return r.width>0&&r.height>0;},null,{timeout:60000});const d=await p.evaluate(({id,text,rev})=>{const s=document.getElementById('vId');const ops=Array.from(s.options);const o=ops.find(x=>Number(x.value)===Number(id))||ops.find(x=>x.text.toLowerCase().includes(text.toLowerCase()));if(!o)return{ok:false,options:ops.map(x=>({value:x.value,text:x.text}))};s.value=o.value;s.dispatchEvent(new Event('change',{bubbles:true}));const r=document.getElementById('rev');if(r)r.checked=rev;return{ok:true,selected:{value:o.value,text:o.text},options:ops.map(x=>({value:x.value,text:x.text}))};},{id,text,rev});report.dialogs.push({label,...d});saveJson('dialog-'+label,d);if(!d.ok)throw new Error('axis option not found '+label);await p.evaluate(letter=>DlgAxisVar.onApply(letter,false),letter);await p.waitForFunction(({win,prop,id})=>{try{return Number(view.dataWinArr[win-1]?.[prop])===Number(id)&&appState.current()===AppState.Ready;}catch{return false;}},{win,prop,id},{timeout:600000});await ready(p,old,2500,600000);}
+          async function save(p,name,extra){const s=await p.evaluate(extra=>{const i=document.getElementById('ImageArea');return{src:i.src,collection:coll.name,map:{w:view.mapWin.wLon,e:view.mapWin.eLon,s:view.mapWin.sLat,n:view.mapWin.nLat},section:view.section?{name:view.section.name,type:view.section.type,width:view.section.width,xNodes:view.section.xNodes,yNodes:view.section.yNodes,valid:view.section.isValid?.(),xml:view.section.isValid?.()?view.section.toXml():''}:null,windows:view.dataWinArr.map((w,k)=>({index:k+1,scope:w.scope,plotMode:w.plotMode,xvId:w.xvId,yvId:w.yvId,zvId:w.zvId,xRev:w.xRev,yRev:w.yRev,zRev:w.zRev,DivaUseSecPoly:w.DivaUseSecPoly,DivaBathyFile:w.DivaBathyFile,dataCount:viewInfo.dataCountsByWin?.[k]})),viewXml:view.toXml(),extra};},extra);fs.writeFileSync(`${OUT}/${name}.png`,Buffer.from(s.src.split(',')[1],'base64'));delete s.src;saveJson(name,s);report.captures.push({name,windows:s.windows,extra});saveJson('capture-report',report);return s;}
+          async function pWait(p,description,timeout=600000){await p.waitForFunction(x=>{try{return viewHistory.current()?.descr===x&&appState.current()===AppState.Ready;}catch{return false;}},description,{timeout});}
+          async function ts(name,d,sea){const{context,page,logs}=await open();try{await domain(page,d);await layout(page,'miOneScatterWin',1);await axis(page,1,'X',2,'Salinity',false,name+'-X');await axis(page,1,'Y',1,'Temperature',false,name+'-Y');await axis(page,1,'Z',0,'Depth',true,name+'-Z');const old=await page.locator('#ImageArea').getAttribute('src');await page.evaluate(()=>{const w=view.dataWinArr[0];w.plotMode=0;w.symbSize=.35;w.drawIsop='T';app.sendWsMsg(Msg.loadView(view.toXml(),viewHistory.currentName(),'Verified T-S'));});await pWait(page,'Verified T-S');await ready(page,old,3500,600000);const s=await save(page,name,{sea,requested:'X=Salinity; Y=Temperature; Z=Depth',source:'official WebODV'});if(s.windows[0].xvId!==2||s.windows[0].yvId!==1||s.windows[0].zvId!==0)throw new Error('TS verification failed');}finally{saveJson(name+'-logs',logs);await context.close();}}
+          async function defineSection(p){await domain(p,{w:128,e:140,s:33,n:44});const old=await p.locator('#ImageArea').getAttribute('src');await p.evaluate(()=>{const sec=new Section();sec.setVals('37N_130E_to_138E',1,20*Section.widthCnvFac,3,17);sec.xNodes=[130,138];sec.yNodes=[37,37];const sx=sec.toXml();let b=view.toXml(),a=b.indexOf('<Section')-1,z=b.indexOf('</Section>')+10;if(a===-2){a=b.indexOf('</MapWindow>')+12;z=a;}const v=b.slice(0,a)+sx+b.slice(z);window.__sec={sx,v,values:Object.fromEntries(Object.keys(sec).map(k=>[k,sec[k]]))};app.sendWsMsg(Msg.loadView(v,viewHistory.currentName(),'Verified geographic section'));});await pWait(p,'Verified geographic section');await p.waitForFunction(()=>view.section?.isValid?.()&&view.section?.xNodes?.length===2,null,{timeout:600000});await ready(p,old,3500,600000);saveJson('section-definition',await p.evaluate(()=>window.__sec));}
+          async function sectionStyle(p,zid,zname,desc){await axis(p,1,'X',200000,'Section Longitude',false,'sec-X-'+zname);await axis(p,1,'Y',0,'Depth',true,'sec-Y-'+zname);await axis(p,1,'Z',zid,zname,false,'sec-Z-'+zname);const old=await p.locator('#ImageArea').getAttribute('src');await p.evaluate(desc=>{view.setDataWinDispStyleGridded(1,7,'T',2,2,'F','T','T',3);const w=view.dataWinArr[0];w.plotMode=7;w.drawShaded='T';w.drawContours='T';w.autoContours='T';w.contours=[];w.DivaUseSecPoly='T';w.DivaBathyFile='GEBCO_2023_2x2min_Global.nc';w.DivaBathyVal=App.missDOUBLE;app.sendWsMsg(Msg.loadView(view.toXml(),viewHistory.currentName(),desc));},desc);await pWait(p,desc,1200000);await ready(p,old,6000,1200000);}
+          async function sections(){const{context,page,logs}=await open();try{await defineSection(page);await layout(page,'miOneSectionWin',1);await sectionStyle(page,1,'Temperature','Verified DIVA Temperature');let s=await save(page,'06-37N-temperature-section',{requested:'37N 130E-138E; X=Section Longitude; Y=Depth; Z=Temperature; DIVA',source:'official WebODV'});if(!s.section?.valid||s.windows[0].xvId!==200000||s.windows[0].yvId!==0||s.windows[0].zvId!==1)throw new Error('temperature section verification failed');await sectionStyle(page,2,'Salinity','Verified DIVA Salinity');s=await save(page,'07-37N-salinity-section',{requested:'37N 130E-138E; X=Section Longitude; Y=Depth; Z=Salinity; DIVA',source:'official WebODV'});if(!s.section?.valid||s.windows[0].xvId!==200000||s.windows[0].yvId!==0||s.windows[0].zvId!==2)throw new Error('salinity section verification failed');}finally{saveJson('section-logs',logs);await context.close();}}
+          async function task(n,f){try{console.log('START '+n);await f();console.log('DONE '+n);}catch(e){fail(n,e);}}
+          await task('east TS',()=>ts('04-east-sea-TS',{w:127.5,e:142,s:33,n:48},'East Sea'));
+          await task('west TS',()=>ts('05-west-sea-TS',{w:119,e:127.5,s:31,n:42},'West Sea'));
+          await task('sections',sections);
           report.finished=new Date().toISOString();saveJson('capture-report',report);await browser.close();
           JS
-          node capture-verified.mjs > webodv-verified/stdout.txt 2> webodv-verified/stderr.txt
-      - name: Upload verified captures
+          node capture-fast.mjs > webodv-fast/stdout.txt 2> webodv-fast/stderr.txt
+      - name: Upload captures
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: webodv-verified
-          path: webodv-verified
+          name: webodv-fast
+          path: webodv-fast
           retention-days: 1
