@@ -11,7 +11,7 @@ permissions:
 jobs:
   test-sections:
     runs-on: ubuntu-latest
-    timeout-minutes: 18
+    timeout-minutes: 15
     steps:
       - uses: actions/setup-node@v4
         with:
@@ -21,7 +21,7 @@ jobs:
           npm init -y
           npm install playwright@1.55.0
           npx playwright install --with-deps chromium
-      - name: Test section configurations
+      - name: Test integer section configurations
         continue-on-error: true
         run: |
           mkdir -p section-tests
@@ -32,74 +32,57 @@ jobs:
           const browser=await chromium.launch({headless:true});
           const context=await browser.newContext({viewport:{width:1920,height:1080},locale:'en-US',timezoneId:'UTC',ignoreHTTPSErrors:true});
           const page=await context.newPage();
-          const frames=[]; const logs=[];
+          const frames=[];const logs=[];
           page.on('console',m=>logs.push(`[${m.type()}] ${m.text()}`));
           page.on('websocket',ws=>{
             ws.on('framesent',e=>{const p=String(e.payload);if(p.includes('set_section'))frames.push({time:Date.now(),dir:'sent',payload:p});});
-            ws.on('framereceived',e=>{if(typeof e.payload==='string'){const p=e.payload;if(p.includes('execute_option')||p.includes('set_section')||p.includes('Manage Section'))frames.push({time:Date.now(),dir:'received',payload:p});}});
+            ws.on('framereceived',e=>{if(typeof e.payload==='string'){const p=e.payload;if(p.includes('execute_option')||p.includes('Manage Section'))frames.push({time:Date.now(),dir:'received',payload:p});}});
           });
           const sleep=ms=>page.waitForTimeout(ms);
-          const report={started:new Date().toISOString(),tests:[],errors:[],methods:{}};
+          const report={started:new Date().toISOString(),tests:[],errors:[]};
           try{
             await page.goto(URL,{waitUntil:'domcontentloaded',timeout:150000});
             await page.waitForFunction(()=>{try{return typeof app!=='undefined'&&app.websocket?.readyState===1&&typeof coll!=='undefined'&&!!coll.name&&typeof view!=='undefined'&&document.getElementById('ImageArea')?.src?.startsWith('data:image/');}catch{return false;}},null,{timeout:180000});
             await sleep(5000);
-            report.methods=await page.evaluate(()=>({
-              defSectionStart:app.defSectionStart.toString(),
-              defSectionProps:app.defSectionProps.toString(),
-              defSectionFinish:app.defSectionFinish.toString(),
-              processWebSocketTextMessage:app.processWebSocketTextMessage.toString(),
-              processUpEvent:app.processUpEvent.toString(),
-              xPixh2Pixo:ui.xPixh2Pixo.toString(),
-              yPixh2Pixo:ui.yPixh2Pixo.toString(),
-              createSection:Msg.createSection.toString()
-            }));
             const reset=async()=>{
-              await page.evaluate(()=>app.onViewLoad('$FullScreenMap$'));
-              await sleep(7000);
+              await page.evaluate(()=>app.onViewLoad('$FullScreenMap$'));await sleep(7000);
               const before=await page.evaluate(()=>viewHistory.size());
               await page.evaluate(()=>app.sendWsMsg(Msg.setMapDomain(128,140,33,44)+','+Msg.msgGetCanvasCurrInfo));
-              await page.waitForFunction(b=>viewHistory.size()>b,before,{timeout:180000});
-              await sleep(5000);
+              await page.waitForFunction(b=>viewHistory.size()>b,before,{timeout:180000});await sleep(5000);
             };
             const cases=[
-              {name:'lat37_width20_lon',lat:37,width:20,type:1},
-              {name:'lat37_125_width20_lon',lat:37.125,width:20,type:1},
-              {name:'lat36_875_width20_lon',lat:36.875,width:20,type:1},
-              {name:'lat37_width30_lon',lat:37,width:30,type:1},
-              {name:'lat37_width40_lon',lat:37,width:40,type:1},
-              {name:'lat37_width20_distance',lat:37,width:20,type:0}
+              {name:'lat37_width20',lat:37,width:20,type:1},
+              {name:'lat37_125_width20',lat:37.125,width:20,type:1},
+              {name:'lat37_width30',lat:37,width:30,type:1}
             ];
             for(const c of cases){
               try{
                 await reset();
+                const startFrame=frames.length;
                 const setup=await page.evaluate(c=>{
                   const r=ui.odvCnvsRects[0];
-                  const x1=r.left+(130-128)/(140-128)*(r.right-r.left);
-                  const x2=r.left+(138-128)/(140-128)*(r.right-r.left);
-                  const y=r.bottom-(c.lat-33)/(44-33)*(r.bottom-r.top);
+                  const x1=Math.round(r.left+(130-128)/(140-128)*(r.right-r.left));
+                  const x2=Math.round(r.left+(138-128)/(140-128)*(r.right-r.left));
+                  const y=Math.round(r.bottom-(c.lat-33)/(44-33)*(r.bottom-r.top));
                   const command={cmd:'execute_option',option:'set_section',description:'Manage Section',name:c.name,type:c.type,km_width:c.width,bathy_type:3,bathy_color:17,x_coords:[x1,x2],y_coords:[y,y]};
-                  const before=viewHistory.size();
                   app.sendWsMsg(JSON.stringify(command)+','+Msg.msgGetDockDataVarLbls+','+Msg.msgGetCanvasCurrInfo);
-                  return {rect:r,x1,x2,y,before,command};
+                  return {rect:r,x1,x2,y,command};
                 },c);
-                await sleep(12000);
+                await sleep(15000);
                 const state=await page.evaluate(()=>({
                   history:viewHistory.size(),
                   section:view.section?{name:view.section.name,type:view.section.type,width:view.section.width,bathyType:view.section.bathyType,xNodes:view.section.xNodes,yNodes:view.section.yNodes,valid:view.section.isValid?.(),xml:view.section.toXml?.()}:null,
-                  viewXml:view.toXml(),selectedStations:viewInfo.valStationCount,dataWinCount:view.dataWinArr.length,
-                  bodyText:document.body.innerText.slice(-800)
+                  viewXml:view.toXml(),selectedStations:viewInfo.valStationCount,dataWinCount:view.dataWinArr.length,bodyText:document.body.innerText.slice(-1000)
                 }));
-                const related=frames.filter(f=>f.time>=Date.now()-20000).map(f=>f);
-                report.tests.push({case:c,setup,state,relatedFrames:related});
-                fs.writeFileSync(`section-tests/${c.name}.json`,JSON.stringify({case:c,setup,state,relatedFrames:related},null,2));
+                const relatedFrames=frames.slice(startFrame);
+                report.tests.push({case:c,setup,state,relatedFrames});
+                fs.writeFileSync(`section-tests/${c.name}.json`,JSON.stringify({case:c,setup,state,relatedFrames},null,2));
                 await page.locator('#ImageArea').screenshot({path:`section-tests/${c.name}.png`});
               }catch(e){report.errors.push({case:c,error:String(e?.stack||e)});}
             }
           }catch(e){report.errors.push({stage:'main',error:String(e?.stack||e)});}finally{
             report.frames=frames;report.logs=logs;report.finished=new Date().toISOString();
-            fs.writeFileSync('section-tests/report.json',JSON.stringify(report,null,2));
-            await browser.close();
+            fs.writeFileSync('section-tests/report.json',JSON.stringify(report,null,2));await browser.close();
           }
           JS
           node test.mjs > section-tests/stdout.txt 2> section-tests/stderr.txt
@@ -107,6 +90,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: webodv-section-tests
+          name: webodv-section-integer-tests
           path: section-tests
           retention-days: 1
