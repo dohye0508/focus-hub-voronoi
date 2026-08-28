@@ -11,7 +11,7 @@ permissions:
 jobs:
   capture:
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,347 +22,138 @@ jobs:
           npm init -y
           npm install playwright@1.55.0
           npx playwright install --with-deps chromium
-      - name: Capture official WebODV figures
+      - name: Capture corrected T-S and 37N sections
         continue-on-error: true
         run: |
-          mkdir -p webodv-final
-          cat > capture-final.mjs <<'JS'
+          mkdir -p webodv-corrections
+          cat > capture-corrections.mjs <<'JS'
           import { chromium } from 'playwright';
           import fs from 'node:fs';
 
-          const OUT = 'webodv-final';
-          const URLS = {
-            annual: 'https://explore.webodv.awi.de/ocean/woa18/0.25-degree/1_all-years/1_annual/woa18_0.25deg_all-years_annual/',
-            early: 'https://explore.webodv.awi.de/ocean/woa18/1.00-degree/3_1955-1964/1_annual/woa18_1.00deg_1955-1964_annual/',
-            recent: 'https://explore.webodv.awi.de/ocean/woa18/1.00-degree/8_2005-2017/1_annual/woa18_1.00deg_2005-2017_annual/'
-          };
-          const report = { started: new Date().toISOString(), captures: [], errors: [] };
-          const browser = await chromium.launch({ headless: true });
+          const OUT='webodv-corrections';
+          const URL='https://explore.webodv.awi.de/ocean/woa18/0.25-degree/1_all-years/1_annual/woa18_0.25deg_all-years_annual/';
+          const report={started:new Date().toISOString(),captures:[],errors:[]};
+          const browser=await chromium.launch({headless:true});
+          const writeJson=(n,v)=>fs.writeFileSync(`${OUT}/${n}.json`,JSON.stringify(v,null,2));
 
-          function writeJson(name, value) {
-            fs.writeFileSync(`${OUT}/${name}.json`, JSON.stringify(value, null, 2));
+          async function openDataset(label){
+            const context=await browser.newContext({viewport:{width:1920,height:1080},locale:'en-US',timezoneId:'UTC',ignoreHTTPSErrors:true});
+            const page=await context.newPage();
+            const logs=[];
+            page.on('console',m=>logs.push(`[console:${m.type()}] ${m.text()}`));
+            page.on('pageerror',e=>logs.push(`[pageerror] ${e.stack||e.message}`));
+            page.on('requestfailed',r=>logs.push(`[requestfailed] ${r.url()} :: ${r.failure()?.errorText}`));
+            await page.goto(URL,{waitUntil:'domcontentloaded',timeout:180000});
+            await page.waitForFunction(()=>{try{return typeof app!=='undefined'&&app.websocket?.readyState===1&&typeof coll!=='undefined'&&coll.dataVarCount?.()>0&&typeof view!=='undefined'&&Array.isArray(ui.dockDataVarIds)&&ui.dockDataVarIds.length>0&&document.getElementById('ImageArea')?.src?.startsWith('data:image/')&&document.getElementById('ImageArea')?.naturalWidth>0;}catch{return false;}},null,{timeout:180000});
+            await page.waitForTimeout(4000);
+            return {context,page,logs};
           }
 
-          async function openDataset(url, label) {
-            const context = await browser.newContext({
-              viewport: { width: 1920, height: 1080 },
-              locale: 'en-US', timezoneId: 'UTC', ignoreHTTPSErrors: true,
-              acceptDownloads: true
-            });
-            const page = await context.newPage();
-            const logs = [];
-            page.on('console', m => logs.push(`[console:${m.type()}] ${m.text()}`));
-            page.on('pageerror', e => logs.push(`[pageerror] ${e.stack || e.message}`));
-            page.on('requestfailed', r => logs.push(`[requestfailed] ${r.url()} :: ${r.failure()?.errorText}`));
-            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 180000 });
-            await page.waitForFunction(() => {
-              try {
-                return typeof app !== 'undefined' && app.websocket?.readyState === 1 &&
-                  typeof coll !== 'undefined' && coll.dataVarCount?.() > 0 &&
-                  typeof view !== 'undefined' && typeof viewInfo !== 'undefined' &&
-                  Array.isArray(ui.dockDataVarIds) && ui.dockDataVarIds.length > 0 &&
-                  Array.isArray(ui.dockIsoVarIds) && ui.dockIsoVarIds.length > 0 &&
-                  document.getElementById('ImageArea')?.src?.startsWith('data:image/') &&
-                  document.getElementById('ImageArea')?.naturalWidth > 0;
-              } catch { return false; }
-            }, null, { timeout: 180000 });
-            await page.waitForTimeout(5000);
-            writeJson(`${label}-open`, await page.evaluate(() => ({
-              url: location.href, title: document.title,
-              collection: coll.name,
-              dataIds: ui.dockDataVarIds,
-              dataLabels: ui.dockDataVarLabels,
-              isoIds: ui.dockIsoVarIds,
-              isoLabels: ui.dockIsoVarLabels,
-              view: view.toXml(),
-              rects: ui.odvCnvsRects,
-              version: app.version
-            })));
-            return { context, page, logs };
-          }
-
-          async function waitReady(page, timeout = 300000) {
-            await page.waitForFunction(() => {
-              try { return appState.current() === AppState.Ready && app.websocket?.readyState === 1; }
-              catch { return false; }
-            }, null, { timeout });
-          }
-
-          async function waitImageChange(page, oldSrc, timeout = 300000) {
-            await page.waitForFunction(old => {
-              const img = document.getElementById('ImageArea');
-              return !!img && img.src.startsWith('data:image/') && img.naturalWidth > 0 && img.src !== old;
-            }, oldSrc, { timeout }).catch(() => {});
+          async function waitImage(page,old,timeout=600000){
+            await page.waitForFunction(o=>{const i=document.getElementById('ImageArea');return i?.src?.startsWith('data:image/')&&i.naturalWidth>0&&i.src!==o;},old,{timeout}).catch(()=>{});
             await page.waitForTimeout(5000);
           }
 
-          async function applyLayout(page, id, count) {
-            const old = await page.locator('#ImageArea').getAttribute('src');
-            await page.evaluate(id => app.layoutApply(id), id);
-            await page.waitForFunction(count => {
-              try { return view.dataWinArr?.length === count && appState.current() === AppState.Ready; }
-              catch { return false; }
-            }, count, { timeout: 300000 });
-            await waitImageChange(page, old, 300000);
+          async function setDomain(page,d){
+            const old=await page.locator('#ImageArea').getAttribute('src');
+            await page.evaluate(d=>app.sendWsMsg(Msg.setMapDomain(d.w,d.e,d.s,d.n)+','+Msg.msgGetCanvasCurrInfo),d);
+            await page.waitForFunction(d=>{try{return Math.abs(view.mapWin.wLon-d.w)<.01&&Math.abs(view.mapWin.eLon-d.e)<.01&&Math.abs(view.mapWin.sLat-d.s)<.01&&Math.abs(view.mapWin.nLat-d.n)<.01&&appState.current()===AppState.Ready;}catch{return false;}},d,{timeout:300000});
+            await waitImage(page,old,300000);
           }
 
-          async function loadMutatedView(page, marker, mutateSource, arg = null, timeout = 300000) {
-            const old = await page.locator('#ImageArea').getAttribute('src');
-            await page.evaluate(({ marker, mutateSource, arg }) => {
-              const mutate = (0, eval)(`(${mutateSource})`);
-              mutate(arg);
-              app.sendWsMsg(Msg.loadView(view.toXml(), viewHistory.currentName(), marker));
-            }, { marker, mutateSource: mutateSource.toString(), arg });
-            await page.waitForFunction(marker => {
-              try { return viewHistory.current()?.descr === marker && appState.current() === AppState.Ready; }
-              catch { return false; }
-            }, marker, { timeout });
-            await waitImageChange(page, old, timeout);
+          async function layout(page,id,n){
+            const old=await page.locator('#ImageArea').getAttribute('src');
+            await page.evaluate(id=>app.layoutApply(id),id);
+            await page.waitForFunction(n=>{try{return view.dataWinArr?.length===n&&appState.current()===AppState.Ready;}catch{return false;}},n,{timeout:300000});
+            await waitImage(page,old,300000);
           }
 
-          async function setMapDomain(page, domain, marker) {
-            const old = await page.locator('#ImageArea').getAttribute('src');
-            await page.evaluate(({ domain, marker }) => {
-              app.sendWsMsg(Msg.setMapDomain(domain.w, domain.e, domain.s, domain.n) + ',' + Msg.msgGetCanvasCurrInfo);
-              window.__domainMarker = marker;
-            }, { domain, marker });
-            await page.waitForFunction(domain => {
-              try {
-                return Math.abs(view.mapWin.wLon - domain.w) < 0.01 &&
-                  Math.abs(view.mapWin.eLon - domain.e) < 0.01 &&
-                  Math.abs(view.mapWin.sLat - domain.s) < 0.01 &&
-                  Math.abs(view.mapWin.nLat - domain.n) < 0.01 &&
-                  appState.current() === AppState.Ready;
-              } catch { return false; }
-            }, domain, { timeout: 300000 });
-            await waitImageChange(page, old, 300000);
+          async function mutateLoad(page,marker,source,arg=null,timeout=600000){
+            const old=await page.locator('#ImageArea').getAttribute('src');
+            await page.evaluate(({marker,source,arg})=>{const fn=(0,eval)(`(${source})`);fn(arg);app.sendWsMsg(Msg.loadView(view.toXml(),viewHistory.currentName(),marker));},{marker,source:source.toString(),arg});
+            await page.waitForFunction(m=>{try{return viewHistory.current()?.descr===m&&appState.current()===AppState.Ready;}catch{return false;}},marker,{timeout});
+            await waitImage(page,old,timeout);
           }
 
-          async function saveCanvas(page, name, extra = {}) {
-            const snap = await page.evaluate(extra => {
-              const img = document.getElementById('ImageArea');
-              return {
-                src: img.src,
-                naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight,
-                imageBounds: {
-                  left: ui.imgOdvCnvsLeft, right: ui.imgOdvCnvsRight,
-                  top: ui.imgOdvCnvsTop, bottom: ui.imgOdvCnvsBottom
-                },
-                rects: ui.odvCnvsRects,
-                colorbarRects: ui.colbarCnvsRects,
-                viewName: viewHistory.currentName(),
-                description: viewHistory.current()?.descr,
-                collection: coll.name,
-                mapDomain: { w: view.mapWin.wLon, e: view.mapWin.eLon, s: view.mapWin.sLat, n: view.mapWin.nLat },
-                section: view.section ? {
-                  name: view.section.name, type: view.section.type,
-                  width: view.section.width, bathyType: view.section.bathyType,
-                  bathyColor: view.section.bathyColor,
-                  valid: view.section.isValid?.()
-                } : null,
-                windows: (view.dataWinArr || []).map((w, i) => ({
-                  index: i + 1, scope: w.scope, plotMode: w.plotMode,
-                  xvId: w.xvId, yvId: w.yvId, zvId: w.zvId,
-                  xLeft: w.xLeft, xRight: w.xRight,
-                  yBottom: w.yBottom, yTop: w.yTop,
-                  zBottom: w.zBottom, zTop: w.zTop,
-                  xRev: w.xRev, yRev: w.yRev, zRev: w.zRev,
-                  drawShaded: w.drawShaded, drawContours: w.drawContours,
-                  autoContours: w.autoContours,
-                  DivaUseSecPoly: w.DivaUseSecPoly,
-                  DivaBathyFile: w.DivaBathyFile
-                })),
-                dataIds: ui.dockDataVarIds, dataLabels: ui.dockDataVarLabels,
-                isoIds: ui.dockIsoVarIds, isoLabels: ui.dockIsoVarLabels,
-                viewXml: view.toXml(), extra
-              };
-            }, extra);
-            const b64 = snap.src.split(',')[1];
-            fs.writeFileSync(`${OUT}/${name}.png`, Buffer.from(b64, 'base64'));
-            delete snap.src;
-            writeJson(name, snap);
-            report.captures.push({ name, collection: snap.collection, windows: snap.windows, extra });
+          async function save(page,name,extra={}){
+            const s=await page.evaluate(extra=>{const i=document.getElementById('ImageArea');return {src:i.src,naturalWidth:i.naturalWidth,naturalHeight:i.naturalHeight,imageBounds:{left:ui.imgOdvCnvsLeft,right:ui.imgOdvCnvsRight,top:ui.imgOdvCnvsTop,bottom:ui.imgOdvCnvsBottom},rects:ui.odvCnvsRects,colorbarRects:ui.colbarCnvsRects,collection:coll.name,mapDomain:{w:view.mapWin.wLon,e:view.mapWin.eLon,s:view.mapWin.sLat,n:view.mapWin.nLat},section:view.section?{name:view.section.name,type:view.section.type,width:view.section.width,bathyType:view.section.bathyType,bathyColor:view.section.bathyColor,valid:view.section.isValid?.(),xml:view.section.isValid?.()?view.section.toXml():''}:null,windows:(view.dataWinArr||[]).map((w,k)=>({index:k+1,scope:w.scope,plotMode:w.plotMode,xvId:w.xvId,yvId:w.yvId,zvId:w.zvId,xLeft:w.xLeft,xRight:w.xRight,yBottom:w.yBottom,yTop:w.yTop,zBottom:w.zBottom,zTop:w.zTop,xRev:w.xRev,yRev:w.yRev,zRev:w.zRev,drawShaded:w.drawShaded,drawContours:w.drawContours,autoContours:w.autoContours,DivaUseSecPoly:w.DivaUseSecPoly,DivaBathyFile:w.DivaBathyFile})),dataIds:ui.dockDataVarIds,dataLabels:ui.dockDataVarLabels,viewXml:view.toXml(),extra};},extra);
+            fs.writeFileSync(`${OUT}/${name}.png`,Buffer.from(s.src.split(',')[1],'base64'));
+            delete s.src;writeJson(name,s);report.captures.push({name,windows:s.windows,extra});
           }
 
-          function surfaceMutation(which) {
-            return function(arg) {
-              const labelNeedle = arg === 'temperature' ? 'Temperature' : 'Salinity';
-              const idx = ui.dockIsoVarLabels.findIndex(l => l.startsWith(labelNeedle + ' [') && !l.startsWith('Mean '));
-              const zid = idx >= 0 ? ui.dockIsoVarIds[idx] : (arg === 'temperature' ? 4 : 5);
-              const w = view.dataWinArr[0];
-              view.setDataWinVars(1, 3, w.xvId, w.yvId, zid, 'F', 'F', 'F');
-            };
-          }
-
-          async function captureSurfacePair() {
-            const { context, page, logs } = await openDataset(URLS.annual, 'annual-surface');
-            try {
-              await applyLayout(page, 'miTwoIsoSurfaceWin', 2);
-              await loadMutatedView(page, 'Configured surface temperature and salinity', function() {
-                const tempIdx = ui.dockIsoVarLabels.findIndex(l => l.startsWith('Temperature [') && !l.startsWith('Mean '));
-                const salIdx = ui.dockIsoVarLabels.findIndex(l => l.startsWith('Salinity [') && !l.startsWith('Mean '));
-                const tempId = tempIdx >= 0 ? ui.dockIsoVarIds[tempIdx] : 4;
-                const salId = salIdx >= 0 ? ui.dockIsoVarIds[salIdx] : 5;
-                const a = view.dataWinArr[0], b = view.dataWinArr[1];
-                view.setDataWinVars(1, 3, a.xvId, a.yvId, tempId, 'F', 'F', 'F');
-                view.setDataWinVars(2, 3, b.xvId, b.yvId, salId, 'F', 'F', 'F');
+          async function scatter(name,d,sea){
+            const {context,page,logs}=await openDataset(name);
+            try{
+              await setDomain(page,d);
+              await layout(page,'miOneScatterWin',1);
+              await mutateLoad(page,`Correct ${sea} T-S variables`,function(){
+                const id=needle=>{const i=ui.dockDataVarLabels.findIndex(l=>l.includes(needle+' [')&&!l.includes('Mean '));return i>=0?ui.dockDataVarIds[i]:({Depth:0,Temperature:1,Salinity:2}[needle]);};
+                view.setDataWinVars(1,1,id('Salinity'),id('Temperature'),id('Depth'),'F','F','T');
+                const w=view.dataWinArr[0];w.plotMode=0;w.symbSize=.35;w.drawIsop='T';
               });
-              await saveCanvas(page, '01-02-global-surface-temperature-salinity', {
-                requested: ['Z=Temperature @ Depth=first', 'Z=Salinity @ Depth=first']
-              });
-            } finally {
-              writeJson('annual-surface-logs', logs);
-              await context.close();
-            }
+              await save(page,name,{requested:'X=Salinity, Y=Temperature, Z=Depth',sea,domain:d});
+            }finally{writeJson(`${name}-logs`,logs);await context.close();}
           }
 
-          async function capturePeriod(url, name, period) {
-            const { context, page, logs } = await openDataset(url, name);
-            try {
-              await applyLayout(page, 'miOneIsoSurfaceWin', 1);
-              await loadMutatedView(page, `Configured ${period} surface temperature`, surfaceMutation('temperature'), 'temperature');
-              await saveCanvas(page, name, { requested: 'Z=Temperature @ Depth=first', period });
-            } finally {
-              writeJson(`${name}-logs`, logs);
-              await context.close();
-            }
-          }
-
-          async function captureScatter(name, domain, seaName) {
-            const { context, page, logs } = await openDataset(URLS.annual, name);
-            try {
-              await setMapDomain(page, domain, name);
-              await applyLayout(page, 'miOneScatterWin', 1);
-              await loadMutatedView(page, `Configured ${seaName} T-S diagram`, function() {
-                const dataId = needle => {
-                  const i = ui.dockDataVarLabels.findIndex(l => l.startsWith(needle + ' ['));
-                  return i >= 0 ? ui.dockDataVarIds[i] : ({Depth:0, Temperature:1, Salinity:2}[needle]);
-                };
-                view.setDataWinVars(1, 1, dataId('Salinity'), dataId('Temperature'), dataId('Depth'), 'F', 'F', 'T');
-                const w = view.dataWinArr[0];
-                w.plotMode = 0;
-                w.symbSize = 0.35;
-                w.drawIsop = 'T';
-              });
-              await saveCanvas(page, name, {
-                requested: 'X=Salinity, Y=Temperature, Z=Depth', sea: seaName, domain
-              });
-            } finally {
-              writeJson(`${name}-logs`, logs);
-              await context.close();
-            }
-          }
-
-          async function defineSection(page) {
-            const domain = { w: 128, e: 140, s: 33, n: 44 };
-            await setMapDomain(page, domain, 'section-domain');
-            const old = await page.locator('#ImageArea').getAttribute('src');
-            await page.evaluate(({ domain }) => {
-              const r = ui.odvCnvsRects[0];
-              const x1 = Math.round(r.left + (130 - domain.w) / (domain.e - domain.w) * (r.right - r.left));
-              const x2 = Math.round(r.left + (138 - domain.w) / (domain.e - domain.w) * (r.right - r.left));
-              const y = Math.round(r.bottom - (37 - domain.s) / (domain.n - domain.s) * (r.bottom - r.top));
-              const sec = new Section();
-              sec.setVals('37N_130E_to_138E', 1, 20, 3, 17);
-              window.__desiredSectionXml = sec.toXml();
-              window.__sectionBaseView = view.toXml();
-              window.__sectionPixels = { x1, x2, y, rect: r, secXml: window.__desiredSectionXml };
-              const cmd = '{"cmd":"execute_option","option":"set_section","description":"Manage Section","name":"37N_130E_to_138E","type":1,"km_width":20,"bathy_type":3,"bathy_color":17,"x_coords":[' + x1 + ',' + x2 + '],"y_coords":[' + y + ',' + y + ']}';
-              app.sendWsMsg(cmd + ',' + Msg.msgGetCanvas);
-            }, { domain });
-            await page.waitForFunction(() => {
-              try { return viewHistory.current()?.descr === 'Manage Section' && appState.current() === AppState.Ready; }
-              catch { return false; }
-            }, null, { timeout: 300000 });
-            await page.waitForTimeout(3000);
-            await page.evaluate(() => {
-              let t = window.__sectionBaseView;
-              const secXml = window.__desiredSectionXml;
-              let e = t.indexOf('<Section') - 1;
-              let i = t.indexOf('</Section>') + 10;
-              if (e === -2) { e = t.indexOf('</MapWindow>') + 12; i = e; }
-              const s = t.slice(0, e) + secXml + t.slice(i);
-              app.sendWsMsg(Msg.loadView(s, viewHistory.currentName(), 'Loaded 37N section'));
+          async function defineSection(page){
+            const d={w:128,e:140,s:33,n:44};
+            await setDomain(page,d);
+            await page.evaluate(d=>{
+              const r=ui.odvCnvsRects[0];
+              const x1=Math.round(r.left+(130-d.w)/(d.e-d.w)*(r.right-r.left));
+              const x2=Math.round(r.left+(138-d.w)/(d.e-d.w)*(r.right-r.left));
+              const y=Math.round(r.bottom-(37-d.s)/(d.n-d.s)*(r.bottom-r.top));
+              const sec=new Section();sec.setVals('37N_130E_to_138E',1,20,3,17);
+              const src=Section.prototype.toXml.toString();
+              const props=[...src.matchAll(/this\.([A-Za-z_$][\w$]*)\.join\(/g)].map(m=>m[1]);
+              props.forEach((p,k)=>{sec[p]=k===0?[x1,x2]:[y,y];});
+              window.__sectionDiag={toXmlSource:src,keysBefore:Object.keys(sec),joinProps:props,values:Object.fromEntries(Object.keys(sec).map(k=>[k,sec[k]])),pixels:{x1,x2,y,rect:r}};
+              window.__sectionXml=sec.toXml();
+              window.__sectionBase=view.toXml();
+              const cmd='{"cmd":"execute_option","option":"set_section","description":"Manage Section","name":"37N_130E_to_138E","type":1,"km_width":20,"bathy_type":3,"bathy_color":17,"x_coords":['+x1+','+x2+'],"y_coords":['+y+','+y+']}';
+              app.sendWsMsg(cmd+','+Msg.msgGetCanvas);
+            },d);
+            await page.waitForFunction(()=>{try{return viewHistory.current()?.descr==='Manage Section'&&appState.current()===AppState.Ready;}catch{return false;}},null,{timeout:300000});
+            writeJson('section-runtime-diagnostic',await page.evaluate(()=>({...window.__sectionDiag,sectionXml:window.__sectionXml})));
+            await page.evaluate(()=>{
+              const t=window.__sectionBase,sec=window.__sectionXml;
+              let e=t.indexOf('<Section')-1,i=t.indexOf('</Section>')+10;
+              if(e===-2){e=t.indexOf('</MapWindow>')+12;i=e;}
+              app.sendWsMsg(Msg.loadView(t.slice(0,e)+sec+t.slice(i),viewHistory.currentName(),'Loaded 37N section'));
             });
-            await page.waitForFunction(() => {
-              try { return viewHistory.current()?.descr === 'Loaded 37N section' && view.section?.isValid?.() && appState.current() === AppState.Ready; }
-              catch { return false; }
-            }, null, { timeout: 300000 });
-            await waitImageChange(page, old, 300000);
+            await page.waitForFunction(()=>{try{return viewHistory.current()?.descr==='Loaded 37N section'&&view.section?.isValid?.()&&appState.current()===AppState.Ready;}catch{return false;}},null,{timeout:300000});
+            await page.waitForTimeout(5000);
           }
 
-          async function captureSections() {
-            const { context, page, logs } = await openDataset(URLS.annual, '37N-sections');
-            try {
+          async function sections(){
+            const {context,page,logs}=await openDataset('37N-sections');
+            try{
               await defineSection(page);
-              writeJson('37N-section-defined', await page.evaluate(() => ({
-                pixels: window.__sectionPixels, section: {
-                  name: view.section.name, type: view.section.type, width: view.section.width,
-                  bathyType: view.section.bathyType, bathyColor: view.section.bathyColor,
-                  xml: view.section.toXml(), valid: view.section.isValid()
-                }, viewXml: view.toXml()
-              })));
-              await applyLayout(page, 'miOneSectionWin', 1);
-              const configure = function(zName) {
-                const dataId = needle => {
-                  const i = ui.dockDataVarLabels.findIndex(l => l.startsWith(needle + ' ['));
-                  return i >= 0 ? ui.dockDataVarIds[i] : ({Depth:0, Temperature:1, Salinity:2}[needle]);
-                };
-                const zid = dataId(zName);
-                view.setDataWinVars(1, 2, App.VID_SECTION_COORD, dataId('Depth'), zid, 'F', 'T', 'F');
-                view.setDataWinDispStyleGridded(1, 7, 'T', 2, 2, 'F', 'T', 'T', 3);
-                const w = view.dataWinArr[0];
-                w.plotMode = 7;
-                w.drawShaded = 'T';
-                w.drawContours = 'T';
-                w.autoContours = 'T';
-                w.contours = [];
-                w.DivaUseSecPoly = 'T';
-                w.DivaBathyFile = 'GEBCO_2023_2x2min_Global.nc';
-                w.DivaBathyVal = App.missDOUBLE;
+              await layout(page,'miOneSectionWin',1);
+              const config=function(zName){
+                const id=needle=>{const i=ui.dockDataVarLabels.findIndex(l=>l.includes(needle+' [')&&!l.includes('Mean '));return i>=0?ui.dockDataVarIds[i]:({Depth:0,Temperature:1,Salinity:2}[needle]);};
+                view.setDataWinVars(1,2,App.VID_SECTION_COORD,id('Depth'),id(zName),'F','T','F');
+                view.setDataWinDispStyleGridded(1,7,'T',2,2,'F','T','T',3);
+                const w=view.dataWinArr[0];w.plotMode=7;w.drawShaded='T';w.drawContours='T';w.autoContours='T';w.contours=[];w.DivaUseSecPoly='T';w.DivaBathyFile='GEBCO_2023_2x2min_Global.nc';w.DivaBathyVal=App.missDOUBLE;
               };
-              await loadMutatedView(page, 'Configured 37N temperature section', configure, 'Temperature', 600000);
-              await saveCanvas(page, '06-37N-130E-138E-temperature-section', {
-                requested: 'X=Section Coordinate (Longitude), Y=Depth, Z=Temperature, DIVA gridding',
-                latitude: 37, longitude: [130, 138]
-              });
-              await loadMutatedView(page, 'Configured 37N salinity section', configure, 'Salinity', 600000);
-              await saveCanvas(page, '07-37N-130E-138E-salinity-section', {
-                requested: 'X=Section Coordinate (Longitude), Y=Depth, Z=Salinity, DIVA gridding',
-                latitude: 37, longitude: [130, 138]
-              });
-            } finally {
-              writeJson('37N-sections-logs', logs);
-              await context.close();
-            }
+              await mutateLoad(page,'Correct 37N temperature section',config,'Temperature',600000);
+              await save(page,'06-37N-130E-138E-temperature-section',{requested:'X=Section Coordinate (Longitude), Y=Depth, Z=Temperature, DIVA gridding',latitude:37,longitude:[130,138]});
+              await mutateLoad(page,'Correct 37N salinity section',config,'Salinity',600000);
+              await save(page,'07-37N-130E-138E-salinity-section',{requested:'X=Section Coordinate (Longitude), Y=Depth, Z=Salinity, DIVA gridding',latitude:37,longitude:[130,138]});
+            }finally{writeJson('37N-sections-logs',logs);await context.close();}
           }
 
-          async function task(name, fn) {
-            try { console.log(`START ${name}`); await fn(); console.log(`DONE ${name}`); }
-            catch (e) {
-              const err = String(e?.stack || e);
-              console.error(`FAILED ${name}: ${err}`);
-              report.errors.push({ name, error: err });
-            }
-            writeJson('capture-report', report);
-          }
-
-          await task('global-surface-pair', captureSurfacePair);
-          await task('1955-1964-surface-temperature', () => capturePeriod(URLS.early, '03a-1955-1964-surface-temperature', '1955-1964'));
-          await task('2005-2017-surface-temperature', () => capturePeriod(URLS.recent, '03b-2005-2017-surface-temperature', '2005-2017'));
-          await task('east-sea-TS', () => captureScatter('04-east-sea-TS', { w: 127.5, e: 142, s: 33, n: 48 }, 'East Sea'));
-          await task('west-sea-TS', () => captureScatter('05-west-sea-TS', { w: 119, e: 127.5, s: 31, n: 42 }, 'West Sea'));
-          await task('37N-sections', captureSections);
-
-          report.finished = new Date().toISOString();
-          writeJson('capture-report', report);
-          await browser.close();
+          async function task(n,fn){try{console.log('START '+n);await fn();console.log('DONE '+n);}catch(e){const s=String(e?.stack||e);console.error('FAILED '+n+': '+s);report.errors.push({name:n,error:s});}writeJson('capture-report',report);}
+          await task('east-sea-TS',()=>scatter('04-east-sea-TS-corrected',{w:127.5,e:142,s:33,n:48},'East Sea'));
+          await task('west-sea-TS',()=>scatter('05-west-sea-TS-corrected',{w:119,e:127.5,s:31,n:42},'West Sea'));
+          await task('37N-sections',sections);
+          report.finished=new Date().toISOString();writeJson('capture-report',report);await browser.close();
           JS
-          node capture-final.mjs > webodv-final/stdout.txt 2> webodv-final/stderr.txt
-      - name: Upload captures
+          node capture-corrections.mjs > webodv-corrections/stdout.txt 2> webodv-corrections/stderr.txt
+      - name: Upload corrections
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: webodv-final-captures
-          path: webodv-final
+          name: webodv-corrected-captures
+          path: webodv-corrections
           retention-days: 1
