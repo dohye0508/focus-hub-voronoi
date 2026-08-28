@@ -41,7 +41,10 @@ jobs:
           page.on('requestfailed',r=>logs.push(`[requestfailed] ${r.url()} :: ${r.failure()?.errorText}`));
 
           async function ready(){
-            await page.waitForFunction(()=>typeof app!=='undefined'&&app.websocket?.readyState===1&&typeof coll!=='undefined'&&coll.dataVarCount?.()>0&&typeof view!=='undefined'&&document.getElementById('ImageArea')?.src?.startsWith('data:image/'),null,{timeout:180000});
+            await page.waitForFunction(()=>{
+              try{return typeof app!=='undefined'&&app.websocket?.readyState===1&&typeof coll!=='undefined'&&coll.dataVarCount?.()>0&&typeof view!=='undefined'&&document.getElementById('ImageArea')?.src?.startsWith('data:image/');}
+              catch{return false;}
+            },null,{timeout:180000});
             await page.waitForTimeout(4000);
           }
           async function dump(name){
@@ -66,8 +69,9 @@ jobs:
           try{
             await page.goto(url,{waitUntil:'domcontentloaded',timeout:150000});
             await ready();
+            const oldSize=await page.evaluate(()=>viewHistory.size());
             await page.evaluate(()=>app.layoutApply('miOneScatterWin'));
-            await page.waitForFunction(()=>view.dataWinArr?.length===1&&viewInfo.dataWinCount===1&&viewHistory.current()?.descr==='Change View Template',null,{timeout:240000});
+            await page.waitForFunction(oldSize=>view.dataWinArr?.length===1&&viewInfo.dataWinCount===1&&viewHistory.size()>oldSize,oldSize,{timeout:240000});
             await page.waitForTimeout(5000);
             await dump('00_scatter_loaded');
 
@@ -84,14 +88,16 @@ jobs:
             await dump('section_properties_dialog');
             await page.evaluate(()=>ui.hideDlg(true));
 
+            const before=await page.evaluate(()=>viewHistory.size());
             await page.evaluate(()=>{
               const cmd=JSON.stringify({cmd:'execute_option',option:'set_section',description:'Manage Section',name:'37N_130E_to_138E',type:1,km_width:20,bathy_type:3,bathy_color:17,x_coords:[130,138],y_coords:[37,37]});
               app.sendWsMsg(cmd+','+Msg.msgGetDockDataVarLbls+','+Msg.msgGetCanvasCurrInfo);
             });
-            for(const delay of [5000,15000,30000,60000]){
-              await page.waitForTimeout(delay===5000?5000:delay-(delay===15000?5000:delay===30000?15000:30000));
-              await dump(`section_after_${delay/1000}s`);
+            for(const seconds of [5,15,30,60]){
+              await page.waitForTimeout(seconds===5?5000:seconds===15?10000:seconds===30?15000:30000);
+              await dump(`section_after_${seconds}s`);
             }
+            logs.push(`[section-history-size] before=${before} after=${await page.evaluate(()=>viewHistory.size())}`);
           }catch(e){logs.push(`[fatal] ${e.stack||e}`);await dump('fatal').catch(()=>{});}finally{
             fs.writeFileSync(`${OUT}/logs.json`,JSON.stringify(logs,null,2));
             await browser.close();
