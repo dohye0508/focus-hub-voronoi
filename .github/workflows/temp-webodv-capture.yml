@@ -9,9 +9,9 @@ permissions:
   contents: read
 
 jobs:
-  capture:
+  inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,120 +22,57 @@ jobs:
           npm init -y
           npm install playwright@1.55.0
           npx playwright install --with-deps chromium
-      - name: Capture configured 37N sections from official WebODV
-        continue-on-error: true
+      - name: Inspect WebODV internals
         run: |
           mkdir -p webodv-output
-          cat > capture.mjs <<'JS'
+          cat > inspect.mjs <<'JS'
           import { chromium } from 'playwright';
           import fs from 'node:fs';
-          import path from 'node:path';
-
-          const OUT='webodv-output';
           const URL='https://explore.webodv.awi.de/ocean/woa18/0.25-degree/1_all-years/1_annual/woa18_0.25deg_all-years_annual/';
           const browser=await chromium.launch({headless:true});
-          const context=await browser.newContext({viewport:{width:1920,height:1080},locale:'en-US',timezoneId:'UTC',ignoreHTTPSErrors:true,acceptDownloads:true});
+          const context=await browser.newContext({viewport:{width:1920,height:1080},locale:'en-US',timezoneId:'UTC',ignoreHTTPSErrors:true});
           const page=await context.newPage();
-          const report={started:new Date().toISOString(),errors:[],captures:[],frames:[]};
-          const logs=[];
-          page.on('console',m=>logs.push(`[console:${m.type()}] ${m.text()}`));
-          page.on('pageerror',e=>logs.push(`[pageerror] ${e.stack||e.message}`));
-          page.on('requestfailed',r=>logs.push(`[requestfailed] ${r.url()} :: ${r.failure()?.errorText}`));
-          page.on('websocket',ws=>{
-            ws.on('framesent',e=>{const p=String(e.payload);if(p.includes('load_view')||p.includes('modify_view')||p.includes('export_graphics'))report.frames.push({dir:'sent',payload:p.slice(0,40000)});});
-            ws.on('framereceived',e=>{if(typeof e.payload==='string'){const p=e.payload;if(p.includes('load_view')||p.includes('modify_view')||p.includes('export_graphics')||p.includes('success'))report.frames.push({dir:'received',payload:p.slice(0,40000)});}});
+          await page.goto(URL,{waitUntil:'domcontentloaded',timeout:150000});
+          await page.waitForFunction(()=>typeof app!=='undefined'&&app.websocket?.readyState===1&&typeof coll!=='undefined'&&coll.dataVarCount?.()>0&&typeof view!=='undefined',{timeout:180000});
+          await page.waitForTimeout(5000);
+          const out=await page.evaluate(()=>{
+            const f=x=>{try{return x?.toString?.()||String(x);}catch(e){return 'ERR '+e;}};
+            const keys=o=>{try{return Object.keys(o||{});}catch(e){return ['ERR '+e];}};
+            const desc=o=>{try{return Object.getOwnPropertyNames(o||{});}catch(e){return ['ERR '+e];}};
+            const s=new Section();
+            const dw=new DataWindow();
+            return {
+              SectionClass:f(Section),
+              SectionKeys:keys(s),
+              SectionOwnNames:desc(s),
+              SectionPrototypeNames:desc(Section.prototype),
+              SectionMethods:Object.fromEntries(desc(Section.prototype).filter(k=>k!=='constructor').map(k=>[k,f(Section.prototype[k])])),
+              SectionInitial:Object.fromEntries(keys(s).map(k=>[k,s[k]])),
+              DlgSecPropsClass:typeof DlgSecProps!=='undefined'?f(DlgSecProps):'missing',
+              DlgSecPropsMethods:typeof DlgSecProps!=='undefined'?Object.fromEntries(desc(DlgSecProps).filter(k=>typeof DlgSecProps[k]==='function').map(k=>[k,f(DlgSecProps[k])])):{},
+              DataWindowClass:f(DataWindow),
+              DataWindowKeys:keys(dw),
+              DataWindowPrototypeNames:desc(DataWindow.prototype),
+              DataWindowMethods:Object.fromEntries(desc(DataWindow.prototype).filter(k=>k!=='constructor').map(k=>[k,f(DataWindow.prototype[k])])),
+              DataWindowInitial:Object.fromEntries(keys(dw).map(k=>[k,dw[k]])),
+              ViewMethods:Object.fromEntries(desc(View.prototype).filter(k=>k!=='constructor').map(k=>[k,f(View.prototype[k])])),
+              MsgMethods:Object.fromEntries(desc(Msg).filter(k=>typeof Msg[k]==='function').map(k=>[k,f(Msg[k])])),
+              AppMethods:Object.fromEntries(desc(App.prototype).filter(k=>k!=='constructor').map(k=>[k,f(App.prototype[k])])),
+              UiMethods:Object.fromEntries(desc(Ui.prototype).filter(k=>k!=='constructor'&&['toOdvCanvasX','toOdvCanvasY','toHtmlCanvasX','toHtmlCanvasY','startPointGetting','finishPointGettingOrZooming','createMenuItems','showMenu'].includes(k)).map(k=>[k,f(Ui.prototype[k])])),
+              constants:{VID_NONE:App.VID_NONE,VID_FIRSTDRVD:App.VID_FIRSTDRVD,VID_SECTION_COORD:App.VID_SECTION_COORD,missDOUBLE:App.missDOUBLE,largeDOUBLE:App.largeDOUBLE},
+              menuElements:Array.from(document.querySelectorAll('[id]')).map(e=>({id:e.id,text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,200),tag:e.tagName,class:e.className})).filter(x=>/^mi|Menu$|Layout|Surface|Scatter|Section|Station/i.test(x.id)||/(surface|scatter|section|station|layout)/i.test(x.text)).slice(0,1000),
+              currentViewXml:view.toXml(),
+              currentMap:{rects:ui.odvCnvsRects,vwpRects:ui.vwpRects,userRects:ui.userRects,odvPixPerHtmlPix:ui.odvPixPerHtmlPix,img:{left:ui.imgOdvCnvsLeft,right:ui.imgOdvCnvsRight,top:ui.imgOdvCnvsTop,bottom:ui.imgOdvCnvsBottom},html:{width:ui.imgArea.width,height:ui.imgArea.height,offsetLeft:ui.imgArea.offsetLeft,offsetTop:ui.imgArea.offsetTop}},
+            };
           });
-          const record=(stage,e)=>{const s=String(e?.stack||e);report.errors.push({stage,error:s});console.error(stage,s);};
-
-          async function waitReady(){
-            await page.waitForFunction(()=>{try{return typeof app!=='undefined'&&app.websocket?.readyState===1&&typeof coll!=='undefined'&&coll.dataVarCount?.()>0&&typeof view!=='undefined'&&document.getElementById('ImageArea')?.src?.startsWith('data:image/');}catch{return false;}},null,{timeout:180000});
-            await page.waitForTimeout(4000);
-          }
-          async function waitCanvas(ms=7000){
-            await page.waitForFunction(()=>{try{return appState.isCnvsReady?.()&&document.getElementById('ImageArea')?.src?.startsWith('data:image/');}catch{return false;}},null,{timeout:1200000});
-            await page.waitForTimeout(ms);
-          }
-          async function saveState(name,settings={}){
-            const d=await page.evaluate(()=>({
-              collection:coll.name,
-              viewName:viewHistory.currentName(),
-              description:viewHistory.current()?.descr,
-              historySize:viewHistory.size(),
-              appState:appState.current(),
-              section:view.section?{name:view.section.name,type:view.section.type,width:view.section.width,bathyType:view.section.bathyType,bathyColor:view.section.bathyColor,xNodes:view.section.xNodes,yNodes:view.section.yNodes,xml:view.section.toXml?.()}:null,
-              windows:(view.dataWinArr||[]).map((w,i)=>({window:i+1,scope:w.scope,plotMode:w.plotMode,isGridding:w.isGridding?.(),x:w.xvId,y:w.yvId,z:w.zvId,xRev:w.xRev,yRev:w.yRev,zRev:w.zRev,drawShaded:w.drawShaded,drawContours:w.drawContours,autoContours:w.autoContours,autoScale:w.autoScale,divaUseSectionPolygon:w.DivaUseSecPoly,divaBathymetry:w.DivaBathyFile,divaSnr:w.DivaSnr,dataCount:viewInfo.dataCountsByWin?.[i],xml:w.toXml?.(i+1)})),
-              bodyText:document.body.innerText.slice(0,5000)
-            }));
-            fs.writeFileSync(path.join(OUT,`${name}.json`),JSON.stringify({settings,state:d},null,2));
-            await page.screenshot({path:path.join(OUT,`${name}_full-page.png`),fullPage:true});
-            if(await page.locator('#ImageArea').count())await page.locator('#ImageArea').screenshot({path:path.join(OUT,`${name}_webodv-canvas.png`)});
-            return d;
-          }
-          async function exportWindow(win,name,settings){
-            let downloaded=false;
-            try{
-              const p=page.waitForEvent('download',{timeout:600000});
-              await page.evaluate(win=>app.sendWsMsg(Msg.exportGraphics(win,'png',200,'normal',false)),win);
-              const d=await p;await d.saveAs(path.join(OUT,`${name}.png`));downloaded=true;
-            }catch(e){record(`export:${name}`,e);}
-            const s=await saveState(name,settings);report.captures.push({name,downloaded,settings,state:s});
-          }
-          async function loadSectionVariable(zId,name,description){
-            const before=await page.evaluate(({zId,name,description})=>{
-              const b=viewHistory.size();
-              view.setDataWinVars(1,2,App.VID_SECTION_COORD,0,zId,'F','T','F');
-              const w=view.dataWinArr[0];
-              w.plotMode=7;
-              w.autoScale='T';w.xScale=2;w.yScale=2;w.isopycnicGridding='F';
-              w.drawShaded='T';w.drawContours='T';w.autoContours='T';w.contours=[];
-              w.drawMarks='F';w.hideBad='T';w.hideDistance=3;
-              w.DivaNonNegativity='F';w.DivaSnr=50;w.DivaUseSecPoly='T';
-              w.DivaBathyFile='GEBCO_2023_2x2min_Global.nc';w.DivaBathyVal=App.missDOUBLE;
-              app.sendWsMsg(Msg.loadView(view.toXml(),name,description));
-              return b;
-            },{zId,name,description});
-            await page.waitForFunction(({before,zId})=>viewHistory.size()>before&&view.dataWinArr?.length===1&&view.dataWinArr[0].scope===2&&view.dataWinArr[0].xvId===App.VID_SECTION_COORD&&view.dataWinArr[0].yvId===0&&view.dataWinArr[0].zvId===zId,{before,zId},{timeout:1200000});
-            await waitCanvas(15000);
-          }
-
-          try{
-            await page.goto(URL,{waitUntil:'domcontentloaded',timeout:150000});
-            await waitReady();
-
-            let before=await page.evaluate(()=>viewHistory.size());
-            await page.evaluate(()=>{
-              const s=new Section();
-              s.setVals('37N_130E_to_138E',1,20,3,17);
-              s.xNodes=[130,138];
-              s.yNodes=[37,37];
-              view.section=s;
-              app.sendWsMsg(Msg.loadView(view.toXml(),'37N_Section_Defined','Define section 37N 130E-138E'));
-            });
-            await page.waitForFunction(before=>viewHistory.size()>before&&view.section?.isValid?.()&&view.section?.xNodes?.length===2,before,{timeout:600000});
-            await waitCanvas(8000);
-            await saveState('01_section_defined',{section:'37N, 130E-138E',coordinate:'Longitude',meanWidthKm:20,bathymetry:'GEBCO'});
-
-            before=await page.evaluate(()=>viewHistory.size());
-            await page.evaluate(()=>app.layoutApply('miOneSectionWin'));
-            await page.waitForFunction(before=>viewHistory.size()>before&&view.dataWinArr?.length===1&&view.dataWinArr[0].scope===2&&view.dataWinArr[0].xvId===App.VID_SECTION_COORD,before,{timeout:600000});
-            await waitCanvas(8000);
-            await saveState('02_one_section_layout');
-
-            await loadSectionVariable(1,'37N_Temperature_DIVA','Temperature section: X Longitude, Y Depth, Z Temperature');
-            await exportWindow(1,'07_37N_130E-138E_temperature_section',{dataset:'WOA18 0.25 degree All-Years Annual',section:'37N, 130E-138E',x:'Longitude',y:'Depth [m]',z:'Temperature [degrees Celsius]',display:'Gridded field',gridding:'DIVA',bathymetry:'GEBCO',meanWidthKm:20});
-
-            await loadSectionVariable(2,'37N_Salinity_DIVA','Salinity section: X Longitude, Y Depth, Z Salinity');
-            await exportWindow(1,'08_37N_130E-138E_salinity_section',{dataset:'WOA18 0.25 degree All-Years Annual',section:'37N, 130E-138E',x:'Longitude',y:'Depth [m]',z:'Salinity [1]',display:'Gridded field',gridding:'DIVA',bathymetry:'GEBCO',meanWidthKm:20});
-          }catch(e){record('main',e);await saveState('failure').catch(()=>{});}finally{
-            report.logs=logs;report.finished=new Date().toISOString();fs.writeFileSync(path.join(OUT,'capture-report.json'),JSON.stringify(report,null,2));
-            await browser.close();
-          }
+          fs.writeFileSync('webodv-output/internals.json',JSON.stringify(out,null,2));
+          await page.screenshot({path:'webodv-output/full-page.png',fullPage:true});
+          await browser.close();
           JS
-          node capture.mjs > webodv-output/stdout.txt 2> webodv-output/stderr.txt
-      - name: Upload captures
-        if: always()
+          node inspect.mjs
+      - name: Upload diagnostic
         uses: actions/upload-artifact@v4
         with:
-          name: webodv-37N-sections-direct
+          name: webodv-internals
           path: webodv-output
           retention-days: 1
