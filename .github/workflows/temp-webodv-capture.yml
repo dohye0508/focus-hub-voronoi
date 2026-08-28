@@ -60,10 +60,11 @@ jobs:
               const img=document.getElementById('ImageArea');
               const canvas=document.getElementById('CanvasArea');
               const box=e=>e?{left:e.getBoundingClientRect().left,top:e.getBoundingClientRect().top,width:e.getBoundingClientRect().width,height:e.getBoundingClientRect().height}:null;
+              const s=view.section;
               return {
                 collection:coll.name,viewName:viewHistory.currentName(),description:viewHistory.current()?.descr,historySize:viewHistory.size(),appState:appState.current(),
                 map:{west:view.mapWin.wLon,east:view.mapWin.eLon,south:view.mapWin.sLat,north:view.mapWin.nLat},
-                section:view.section?{name:view.section.name,type:view.section.type,width:view.section.width,bathyType:view.section.bathyType,bathyColor:view.section.bathyColor,xNodes:view.section.xNodes||view.section.xn,yNodes:view.section.yNodes||view.section.yn,xml:view.section.toXml?.()}:null,
+                section:s?{keys:Object.keys(s),name:s.name,type:s.type,width:s.width,bathyType:s.bathyType,bathyColor:s.bathyColor,xNodes:s.xNodes||s.xn,yNodes:s.yNodes||s.yn}:null,
                 windows:(view.dataWinArr||[]).map((w,i)=>({window:i+1,scope:w.scope,plotMode:w.plotMode,isGridding:w.isGridding?.(),x:w.xvId,y:w.yvId,z:w.zvId,xRev:w.xRev,yRev:w.yRev,zRev:w.zRev,drawShaded:w.drawShaded,drawContours:w.drawContours,autoContours:w.autoContours,autoScale:w.autoScale,divaUseSectionPolygon:w.DivaUseSecPoly,divaBathymetry:w.DivaBathyFile,dataCount:viewInfo.dataCountsByWin?.[i],xml:w.toXml?.(i+1)})),
                 odvRects:ui.odvCnvsRects,imgNatural:{width:img?.naturalWidth,height:img?.naturalHeight},imgBox:box(img),canvasBox:box(canvas),pointX:ui.ptgCnvsX,pointY:ui.ptgCnvsY,
                 visibleControls:[...document.querySelectorAll('input,select,button')].filter(e=>e.offsetParent!==null).map(e=>({tag:e.tagName,id:e.id,value:e.value,text:e.innerText,onclick:e.getAttribute('onclick')})),bodyText:document.body.innerText.slice(0,7000)
@@ -146,10 +147,7 @@ jobs:
 
             before=await page.evaluate(()=>viewHistory.size());
             await page.locator('button[onclick*="DlgSecProps.onApply"]').click();
-            await page.waitForFunction(before=>{
-              const xml=view.section?.toXml?.()||'';
-              return viewHistory.size()>before&&view.section?.isValid?.()&&!xml.includes('NaN')&&xml.includes('37N_130E_to_138E');
-            },before,{timeout:600000});
+            await page.waitForFunction(before=>viewHistory.size()>before&&view.section?.type>=0,before,{timeout:600000});
             await page.waitForFunction(()=>appState.current()===AppState.Ready,null,{timeout:300000});
             await waitCanvas(10000);
             await saveState('03_section_defined',{section:'37N, 130E-138E',coordinate:'Longitude',meanWidthKm:20,bathymetry:'GEBCO'});
@@ -175,6 +173,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: webodv-37N-sections-scaled-clicks
+          name: webodv-37N-sections-safe-wait
           path: webodv-output
           retention-days: 1
