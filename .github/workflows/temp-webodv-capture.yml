@@ -61,7 +61,7 @@ jobs:
             },{axis,value,reverse});
             fs.writeFileSync(path.join(OUT,`axis-${axis}-${value}.json`),JSON.stringify(diag,null,2));
             const key=axis==='X'?'xvId':axis==='Y'?'yvId':'zvId'; const lbl=axis==='X'?'xLbl':axis==='Y'?'yLbl':'zLbl';
-            await page.waitForFunction(({before,key,value,expected})=>{const w=view.dataWinArr?.[0];return !!w&&w[key]===value&&(viewHistory.size()>before||true)&&(!expected||String(w[lbl]||'').toLowerCase().includes(expected.toLowerCase()));},{before,key,value,expected,lbl},{timeout:300000});
+            await page.waitForFunction(({before,key,value,expected,lbl})=>{const w=view.dataWinArr?.[0];return !!w&&w[key]===value&&(!expected||String(w[lbl]||'').toLowerCase().includes(expected.toLowerCase()));},{before,key,value,expected,lbl},{timeout:300000});
             await waitCanvas(6000);
           }
           async function captureTS(name,domain){
