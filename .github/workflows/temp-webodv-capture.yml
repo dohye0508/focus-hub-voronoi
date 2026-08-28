@@ -9,11 +9,10 @@ permissions:
   contents: read
 
 jobs:
-  capture:
+  inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 12
     steps:
-      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -22,123 +21,73 @@ jobs:
           npm init -y
           npm install playwright@1.55.0
           npx playwright install --with-deps chromium
-      - name: Capture via live WebODV dialogs
+      - name: Inspect WebODV internals
         continue-on-error: true
         run: |
-          mkdir -p webodv-ui-final
-          cat > capture-ui.mjs <<'JS'
+          mkdir -p webodv-internals
+          cat > inspect.mjs <<'JS'
           import { chromium } from 'playwright';
           import fs from 'node:fs';
-
-          const OUT='webodv-ui-final';
           const URL='https://explore.webodv.awi.de/ocean/woa18/0.25-degree/1_all-years/1_annual/woa18_0.25deg_all-years_annual/';
-          const report={started:new Date().toISOString(),captures:[],errors:[],dialogs:[]};
           const browser=await chromium.launch({headless:true});
-          const saveJson=(n,v)=>fs.writeFileSync(`${OUT}/${n}.json`,JSON.stringify(v,null,2));
-
-          async function openDataset(){
-            const context=await browser.newContext({viewport:{width:1920,height:1080},locale:'en-US',timezoneId:'UTC',ignoreHTTPSErrors:true});
-            const page=await context.newPage();
-            const logs=[];
-            page.on('console',m=>logs.push(`[console:${m.type()}] ${m.text()}`));
-            page.on('pageerror',e=>logs.push(`[pageerror] ${e.stack||e.message}`));
-            page.on('requestfailed',r=>logs.push(`[requestfailed] ${r.url()} :: ${r.failure()?.errorText}`));
-            await page.goto(URL,{waitUntil:'domcontentloaded',timeout:180000});
-            await page.waitForFunction(()=>{try{return app.websocket?.readyState===1&&coll.dataVarCount?.()>0&&typeof view!=='undefined'&&document.getElementById('ImageArea')?.naturalWidth>0;}catch{return false;}},null,{timeout:180000});
-            await page.waitForTimeout(4000);
-            return {context,page,logs};
-          }
-          async function waitImg(p,old,t=600000){await p.waitForFunction(o=>{const i=document.getElementById('ImageArea');return i?.naturalWidth>0&&i.src!==o;},old,{timeout:t}).catch(()=>{});await p.waitForTimeout(4000);}
-          async function setDomain(p,d){const old=await p.locator('#ImageArea').getAttribute('src');await p.evaluate(d=>app.sendWsMsg(Msg.setMapDomain(d.w,d.e,d.s,d.n)+','+Msg.msgGetCanvasCurrInfo),d);await p.waitForFunction(d=>{try{return Math.abs(view.mapWin.wLon-d.w)<.01&&Math.abs(view.mapWin.eLon-d.e)<.01&&Math.abs(view.mapWin.sLat-d.s)<.01&&Math.abs(view.mapWin.nLat-d.n)<.01&&appState.current()===AppState.Ready;}catch{return false;}},d,{timeout:300000});await waitImg(p,old,300000);}
-          async function layout(p,id,n){const old=await p.locator('#ImageArea').getAttribute('src');await p.evaluate(id=>app.layoutApply(id),id);await p.waitForFunction(n=>{try{return view.dataWinArr.length===n&&appState.current()===AppState.Ready;}catch{return false;}},n,{timeout:300000});await waitImg(p,old,300000);}
-          async function saveCanvas(p,name,extra={}){const s=await p.evaluate(extra=>{const i=document.getElementById('ImageArea');return{src:i.src,naturalWidth:i.naturalWidth,naturalHeight:i.naturalHeight,rects:ui.odvCnvsRects,colorbarRects:ui.colbarCnvsRects,mapDomain:{w:view.mapWin.wLon,e:view.mapWin.eLon,s:view.mapWin.sLat,n:view.mapWin.nLat},section:view.section?{name:view.section.name,type:view.section.type,width:view.section.width,bathyType:view.section.bathyType,bathyColor:view.section.bathyColor,xNodes:view.section.xNodes,yNodes:view.section.yNodes,valid:view.section.isValid?.(),xml:view.section.isValid?.()?view.section.toXml():''}:null,windows:view.dataWinArr.map((w,k)=>({index:k+1,scope:w.scope,plotMode:w.plotMode,xvId:w.xvId,yvId:w.yvId,zvId:w.zvId,xLeft:w.xLeft,xRight:w.xRight,yBottom:w.yBottom,yTop:w.yTop,zBottom:w.zBottom,zTop:w.zTop,xRev:w.xRev,yRev:w.yRev,zRev:w.zRev,drawShaded:w.drawShaded,drawContours:w.drawContours,autoContours:w.autoContours,DivaUseSecPoly:w.DivaUseSecPoly,DivaBathyFile:w.DivaBathyFile})),viewXml:view.toXml(),extra};},extra);fs.writeFileSync(`${OUT}/${name}.png`,Buffer.from(s.src.split(',')[1],'base64'));delete s.src;saveJson(name,s);report.captures.push({name,windows:s.windows,extra});}
-
-          async function setAxisByDialog(p,winId,axis,candidates,label){
-            const old=await p.locator('#ImageArea').getAttribute('src');
-            await p.evaluate(({winId,axis})=>DlgAxisVar.show(winId,axis),{winId,axis});
-            await p.waitForFunction(()=>Array.from(document.querySelectorAll('select')).some(s=>{const r=s.getBoundingClientRect();return r.width>0&&r.height>0;}),null,{timeout:60000});
-            const diag=await p.evaluate(({candidates,label})=>{
-              const visible=e=>{const r=e.getBoundingClientRect();return r.width>0&&r.height>0&&getComputedStyle(e).visibility!=='hidden';};
-              const controls=Array.from(document.querySelectorAll('input,select,button')).filter(visible).map(e=>({tag:e.tagName,id:e.id,value:e.value||'',text:(e.innerText||e.textContent||'').trim(),onclick:e.getAttribute('onclick'),options:e.tagName==='SELECT'?Array.from(e.options).map(o=>({value:o.value,text:o.text})):undefined}));
-              let found=null;
-              for(const s of Array.from(document.querySelectorAll('select')).filter(visible)){
-                for(const o of Array.from(s.options)){
-                  if(candidates.some(c=>o.text.toLowerCase().includes(c.toLowerCase()))){s.value=o.value;s.dispatchEvent(new Event('change',{bubbles:true}));found={selectId:s.id,value:o.value,text:o.text};break;}
-                }
-                if(found)break;
+          const context=await browser.newContext({viewport:{width:1920,height:1080},locale:'en-US',timezoneId:'UTC',ignoreHTTPSErrors:true});
+          const page=await context.newPage();
+          const logs=[]; page.on('console',m=>logs.push(`[${m.type()}] ${m.text()}`)); page.on('pageerror',e=>logs.push(`[pageerror] ${e.stack||e.message}`));
+          try{
+            await page.goto(URL,{waitUntil:'domcontentloaded',timeout:150000});
+            await page.waitForFunction(()=>{try{return typeof app!=='undefined'&&app.websocket?.readyState===1&&typeof coll!=='undefined'&&!!coll.name&&typeof view!=='undefined'&&document.getElementById('ImageArea')?.src?.startsWith('data:image/');}catch{return false;}},null,{timeout:180000});
+            await page.waitForTimeout(7000);
+            const result=await page.evaluate(async()=>{
+              const src=x=>{try{return x?.toString?.()||String(x);}catch(e){return `ERR:${e}`;}};
+              const own=o=>{try{return Object.getOwnPropertyNames(o||{});}catch(e){return [`ERR:${e}`];}};
+              const vals=o=>{const r={};for(const k of Object.keys(o||{})){try{const v=o[k];r[k]=typeof v==='function'?src(v):v;}catch(e){r[k]=`ERR:${e}`;}}return r;};
+              const methods=(o,stat=false)=>Object.fromEntries(own(o).filter(k=>k!=='constructor'&&typeof o[k]==='function').map(k=>[k,src(o[k])]));
+              const s=new Section(); const dw=new DataWindow();
+              const base={
+                version:app.version,collection:coll.name,
+                SectionClass:src(Section),SectionStatic:methods(Section,true),SectionKeys:Object.keys(s),SectionValues:vals(s),SectionPrototype:methods(Section.prototype),
+                DlgSecPropsClass:typeof DlgSecProps!=='undefined'?src(DlgSecProps):'missing',DlgSecPropsStatic:typeof DlgSecProps!=='undefined'?methods(DlgSecProps,true):{},
+                DlgAxisVarClass:typeof DlgAxisVar!=='undefined'?src(DlgAxisVar):'missing',DlgAxisVarStatic:typeof DlgAxisVar!=='undefined'?methods(DlgAxisVar,true):{},
+                DataWindowClass:src(DataWindow),DataWindowKeys:Object.keys(dw),DataWindowValues:vals(dw),DataWindowPrototype:methods(DataWindow.prototype),
+                ViewPrototype:Object.fromEntries(own(View.prototype).filter(k=>['setDataWinVars','setDataWinDispStyleGridded','toXml'].includes(k)).map(k=>[k,src(View.prototype[k])])),
+                MsgStatic:Object.fromEntries(own(Msg).filter(k=>['createSection','loadView','modifyView','setDwXYZVars','setMapDomain'].includes(k)).map(k=>[k,src(Msg[k])])),
+                CollPrototype:Object.fromEntries(own(Collection.prototype).filter(k=>/dataVar|AtSpec|FullLabel|Count|primary/i.test(k)).map(k=>[k,typeof Collection.prototype[k]==='function'?src(Collection.prototype[k]):Collection.prototype[k]])),
+                AppConstants:{VID_NONE:App.VID_NONE,VID_SECTION_COORD:App.VID_SECTION_COORD,missDOUBLE:App.missDOUBLE,largeDOUBLE:App.largeDOUBLE},
+                currentView:view.toXml(),
+                vars:Array.from({length:7},(_,i)=>{try{const v=coll.dataVar(i);return {i,name:v.name,uname:v.uname,units:v.units,keyVarId:v.keyVarId,varType:v.varType};}catch(e){return {i,error:String(e)}}}),
+                menu:Array.from(document.querySelectorAll('[id]')).map(e=>({id:e.id,text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,180)})).filter(x=>/^mi/.test(x.id)||/(surface|scatter|section|axis variable)/i.test(x.text)).slice(0,1200)
+              };
+              // Open a scatter template and inspect each axis dialog without applying.
+              const old=viewHistory.size(); app.layoutApply('miOneScatterWin');
+              await new Promise(r=>setTimeout(r,12000));
+              base.scatterTemplate={historyBefore:old,historyAfter:viewHistory.size(),window:view.dataWinArr[0]?vals(view.dataWinArr[0]):null,xml:view.toXml()};
+              base.axisDialogs={};
+              for(const axis of ['X','Y','Z']){
+                try{
+                  DlgAxisVar.show(1,axis); await new Promise(r=>setTimeout(r,1000));
+                  const visible=e=>{const q=e.getBoundingClientRect();return q.width>0&&q.height>0&&getComputedStyle(e).visibility!=='hidden';};
+                  base.axisDialogs[axis]={
+                    bodyText:Array.from(document.querySelectorAll('.PopupDlg')).filter(visible).map(e=>e.innerText).join('\n'),
+                    selects:Array.from(document.querySelectorAll('select')).filter(visible).map(e=>({id:e.id,value:e.value,options:Array.from(e.options).map(o=>({value:o.value,text:o.text,selected:o.selected}))})),
+                    inputs:Array.from(document.querySelectorAll('input')).filter(visible).map(e=>({id:e.id,type:e.type,value:e.value,checked:e.checked})),
+                    buttons:Array.from(document.querySelectorAll('button')).filter(visible).map(e=>({id:e.id,text:(e.innerText||e.textContent||'').trim(),onclick:e.getAttribute('onclick')}))
+                  };
+                  ui.hideDlg(true); await new Promise(r=>setTimeout(r,300));
+                }catch(e){base.axisDialogs[axis]={error:String(e?.stack||e)};try{ui.hideDlg(true);}catch{}}
               }
-              return {label,candidates,found,controls,dlgAxisVarSource:typeof DlgAxisVar!=='undefined'?DlgAxisVar.toString():'missing',setDataWinVarsSource:View.prototype.setDataWinVars?.toString(),toXmlAxisVarsSource:DataWindow.prototype.toXmlAxisVars?.toString()};
-            },{candidates,label});
-            report.dialogs.push(diag);saveJson(`dialog-${label.replace(/[^A-Za-z0-9_-]/g,'_')}`,diag);
-            if(!diag.found)throw new Error(`No option matched ${candidates.join('|')} for ${label}`);
-            const clicked=await p.evaluate(()=>{
-              const visible=e=>{const r=e.getBoundingClientRect();return r.width>0&&r.height>0&&getComputedStyle(e).visibility!=='hidden';};
-              const buttons=Array.from(document.querySelectorAll('button')).filter(visible);
-              const b=buttons.find(x=>/^(Apply|Select|OK)$/i.test((x.innerText||x.textContent||'').trim()))||buttons.find(x=>(x.getAttribute('onclick')||'').includes('DlgAxisVar'));
-              if(!b)return null;const info={text:(b.innerText||b.textContent||'').trim(),onclick:b.getAttribute('onclick')};b.click();return info;
+              // Populate section through the exact class members discovered by point clicks if possible: only inspect fresh instance here.
+              return base;
             });
-            if(!clicked)throw new Error(`No apply/select button found for ${label}`);
-            await p.waitForFunction(()=>{try{return appState.current()===AppState.Ready&&!Array.from(document.querySelectorAll('select')).some(s=>{const r=s.getBoundingClientRect();return r.width>0&&r.height>0&&s.closest('.PopupDlg');});}catch{return false;}},null,{timeout:300000}).catch(()=>{});
-            await waitImg(p,old,300000);
-          }
-
-          async function captureTS(name,domain,sea){
-            const {context,page,logs}=await openDataset();
-            try{
-              await setDomain(page,domain);await layout(page,'miOneScatterWin',1);
-              await setAxisByDialog(page,1,'X',['Salinity'],'X-Salinity-'+sea);
-              await setAxisByDialog(page,1,'Y',['Temperature'],'Y-Temperature-'+sea);
-              await setAxisByDialog(page,1,'Z',['Depth'],'Z-Depth-'+sea);
-              await page.evaluate(()=>{const w=view.dataWinArr[0];w.plotMode=0;w.symbSize=.35;w.drawIsop='T';app.sendWsMsg(Msg.loadView(view.toXml(),viewHistory.currentName(),'Finalize T-S diagram'));});
-              await page.waitForFunction(()=>{try{return viewHistory.current()?.descr==='Finalize T-S diagram'&&appState.current()===AppState.Ready;}catch{return false;}},null,{timeout:300000});await page.waitForTimeout(5000);
-              const xml=await page.evaluate(()=>view.toXml());
-              if(!xml.includes("var_label='Salinity [psu]'")||!xml.includes("var_label='Temperature [degC]'")||!xml.includes("var_label='Depth [m]'"))throw new Error('Final T-S XML did not contain all requested variables');
-              await saveCanvas(page,name,{requested:'X=Salinity, Y=Temperature, Z=Depth',sea,domain});
-            }finally{saveJson(`${name}-logs`,logs);await context.close();}
-          }
-
-          async function defineSection(p){
-            const d={w:128,e:140,s:33,n:44};await setDomain(p,d);
-            await p.evaluate(d=>{
-              const r=ui.odvCnvsRects[0],x1=Math.round(r.left+(130-d.w)/(d.e-d.w)*(r.right-r.left)),x2=Math.round(r.left+(138-d.w)/(d.e-d.w)*(r.right-r.left)),y=Math.round(r.bottom-(37-d.s)/(d.n-d.s)*(r.bottom-r.top));
-              const sec=new Section();sec.setVals('37N_130E_to_138E',1,20*Section.widthCnvFac,3,17);sec.xNodes=[130,138];sec.yNodes=[37,37];
-              window.__secXml=sec.toXml();window.__base=view.toXml();window.__secDiag={widthCnvFac:Section.widthCnvFac,pixels:{x1,x2,y,rect:r},sectionXml:window.__secXml,sectionValues:Object.fromEntries(Object.keys(sec).map(k=>[k,sec[k]]))};
-              const cmd='{"cmd":"execute_option","option":"set_section","description":"Manage Section","name":"37N_130E_to_138E","type":1,"km_width":20,"bathy_type":3,"bathy_color":17,"x_coords":['+x1+','+x2+'],"y_coords":['+y+','+y+']}';app.sendWsMsg(cmd+','+Msg.msgGetCanvas);
-            },d);
-            await p.waitForFunction(()=>{try{return viewHistory.current()?.descr==='Manage Section'&&appState.current()===AppState.Ready;}catch{return false;}},null,{timeout:300000});saveJson('section-definition-geographic',await p.evaluate(()=>window.__secDiag));
-            const old=await p.locator('#ImageArea').getAttribute('src');
-            await p.evaluate(()=>{let t=window.__base,sec=window.__secXml,e=t.indexOf('<Section')-1,i=t.indexOf('</Section>')+10;if(e===-2){e=t.indexOf('</MapWindow>')+12;i=e;}window.__loaded=t.slice(0,e)+sec+t.slice(i);app.sendWsMsg(Msg.loadView(window.__loaded,viewHistory.currentName(),'Loaded geographic 37N section'));});
-            await p.waitForFunction(()=>{try{return viewHistory.current()?.descr==='Loaded geographic 37N section'&&appState.current()===AppState.Ready;}catch{return false;}},null,{timeout:300000});await waitImg(p,old,300000);
-            const state=await p.evaluate(()=>({section:view.section?{name:view.section.name,type:view.section.type,width:view.section.width,bathyType:view.section.bathyType,bathyColor:view.section.bathyColor,xNodes:view.section.xNodes,yNodes:view.section.yNodes,valid:view.section.isValid?.(),xml:view.section.isValid?.()?view.section.toXml():''}:null,viewXml:view.toXml(),loaded:window.__loaded}));saveJson('section-loaded-geographic',state);
-            if(!state.section?.valid)throw new Error('Geographic section was not accepted: '+JSON.stringify(state.section));
-          }
-
-          async function captureSections(){
-            const {context,page,logs}=await openDataset();
-            try{
-              await defineSection(page);await layout(page,'miOneSectionWin',1);
-              await setAxisByDialog(page,1,'X',['Section Coordinate','Longitude'],'section-X');
-              await setAxisByDialog(page,1,'Y',['Depth'],'section-Y-Depth');
-              await setAxisByDialog(page,1,'Z',['Temperature'],'section-Z-Temperature');
-              await page.evaluate(()=>{view.setDataWinDispStyleGridded(1,7,'T',2,2,'F','T','T',3);const w=view.dataWinArr[0];w.plotMode=7;w.drawShaded='T';w.drawContours='T';w.autoContours='T';w.contours=[];w.DivaUseSecPoly='T';w.DivaBathyFile='GEBCO_2023_2x2min_Global.nc';w.DivaBathyVal=App.missDOUBLE;app.sendWsMsg(Msg.loadView(view.toXml(),viewHistory.currentName(),'DIVA temperature section'));});
-              await page.waitForFunction(()=>{try{return viewHistory.current()?.descr==='DIVA temperature section'&&appState.current()===AppState.Ready;}catch{return false;}},null,{timeout:600000});await page.waitForTimeout(6000);await saveCanvas(page,'06-37N-temperature-section-UI',{requested:'37N, 130E–138E; X=Section Coordinate, Y=Depth, Z=Temperature; DIVA'});
-              await setAxisByDialog(page,1,'Z',['Salinity'],'section-Z-Salinity');
-              await page.evaluate(()=>{const w=view.dataWinArr[0];w.plotMode=7;w.drawShaded='T';w.drawContours='T';w.autoContours='T';w.DivaUseSecPoly='T';w.DivaBathyFile='GEBCO_2023_2x2min_Global.nc';app.sendWsMsg(Msg.loadView(view.toXml(),viewHistory.currentName(),'DIVA salinity section'));});
-              await page.waitForFunction(()=>{try{return viewHistory.current()?.descr==='DIVA salinity section'&&appState.current()===AppState.Ready;}catch{return false;}},null,{timeout:600000});await page.waitForTimeout(6000);await saveCanvas(page,'07-37N-salinity-section-UI',{requested:'37N, 130E–138E; X=Section Coordinate, Y=Depth, Z=Salinity; DIVA'});
-            }finally{saveJson('section-logs',logs);await context.close();}
-          }
-
-          async function task(n,fn){try{console.log('START '+n);await fn();console.log('DONE '+n);}catch(e){const s=String(e?.stack||e);console.error('FAILED '+n+': '+s);report.errors.push({name:n,error:s});}saveJson('capture-report',report);}
-          await task('east-sea-TS',()=>captureTS('04-east-sea-TS-UI',{w:127.5,e:142,s:33,n:48},'East Sea'));
-          await task('west-sea-TS',()=>captureTS('05-west-sea-TS-UI',{w:119,e:127.5,s:31,n:42},'West Sea'));
-          await task('37N-sections',captureSections);
-          report.finished=new Date().toISOString();saveJson('capture-report',report);await browser.close();
+            fs.writeFileSync('webodv-internals/internals.json',JSON.stringify(result,null,2));
+            fs.writeFileSync('webodv-internals/logs.json',JSON.stringify(logs,null,2));
+            await page.screenshot({path:'webodv-internals/page.png',fullPage:true});
+          }catch(e){fs.writeFileSync('webodv-internals/error.txt',String(e?.stack||e));await page.screenshot({path:'webodv-internals/failure.png',fullPage:true}).catch(()=>{});}finally{await browser.close();}
           JS
-          node capture-ui.mjs > webodv-ui-final/stdout.txt 2> webodv-ui-final/stderr.txt
-      - name: Upload UI captures
+          node inspect.mjs > webodv-internals/stdout.txt 2> webodv-internals/stderr.txt
+      - name: Upload internals
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: webodv-ui-final
-          path: webodv-ui-final
+          name: webodv-internals
+          path: webodv-internals
           retention-days: 1
