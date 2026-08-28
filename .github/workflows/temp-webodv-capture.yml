@@ -22,7 +22,7 @@ jobs:
           npm init -y
           npm install playwright@1.55.0
           npx playwright install --with-deps chromium
-      - name: Capture and inspect WebODV
+      - name: Inspect WebODV layouts
         continue-on-error: true
         run: |
           mkdir -p webodv-output
@@ -30,122 +30,99 @@ jobs:
           import { chromium } from 'playwright';
           import fs from 'node:fs';
 
-          const urls = [
-            'https://explore.webodv.awi.de/ocean/woa18/0.25-degree/1_all-years/1_annual/woa18_0.25deg_all-years_annual/',
-            'https://webodv.eoscfe.mesocentre.uca.fr/ocean/woa18/0.25-degree/1_all-years/1_annual/woa18_0.25deg_all-years_annual/'
-          ];
-
+          const url = 'https://explore.webodv.awi.de/ocean/woa18/0.25-degree/1_all-years/1_annual/woa18_0.25deg_all-years_annual/';
+          const browser = await chromium.launch({ headless: true });
+          const context = await browser.newContext({
+            viewport: { width: 1920, height: 1080 },
+            locale: 'en-US', timezoneId: 'UTC', ignoreHTTPSErrors: true
+          });
+          const page = await context.newPage();
           const logs = [];
-          let browser;
-          let page;
-          let loaded = false;
-          let lastError = '';
-          try {
-            browser = await chromium.launch({ headless: true });
-            const context = await browser.newContext({
-              viewport: { width: 1920, height: 1080 },
-              locale: 'en-US',
-              timezoneId: 'UTC',
-              ignoreHTTPSErrors: true
-            });
-            page = await context.newPage();
-            page.on('console', msg => logs.push(`[console:${msg.type()}] ${msg.text()}`));
-            page.on('pageerror', err => logs.push(`[pageerror] ${err.stack || err.message}`));
-            page.on('requestfailed', req => logs.push(`[requestfailed] ${req.url()} :: ${req.failure()?.errorText}`));
+          page.on('console', msg => logs.push(`[console:${msg.type()}] ${msg.text()}`));
+          page.on('pageerror', err => logs.push(`[pageerror] ${err.stack || err.message}`));
+          page.on('requestfailed', req => logs.push(`[requestfailed] ${req.url()} :: ${req.failure()?.errorText}`));
 
-            for (const url of urls) {
+          async function waitReady(timeout = 120000) {
+            await page.waitForFunction(() => {
               try {
-                const resp = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 120000 });
-                logs.push(`[goto] ${url} status=${resp?.status()}`);
-                await page.waitForTimeout(45000);
-                if ((await page.title()).toLowerCase().includes('woa18') || await page.locator('#GridContainer').count()) {
-                  loaded = true;
-                  break;
+                return typeof app !== 'undefined' && app.websocket?.readyState === 1 &&
+                  typeof coll !== 'undefined' && coll.dataVarCount?.() > 0 &&
+                  typeof view !== 'undefined' &&
+                  document.getElementById('ImageArea')?.getAttribute('src')?.startsWith('data:image/png');
+              } catch { return false; }
+            }, { timeout });
+          }
+
+          async function snapshot(name) {
+            await page.waitForTimeout(5000);
+            const data = await page.evaluate(() => ({
+              title: document.title,
+              viewXml: view?.toXml?.(),
+              viewHistoryName: viewHistory?.currentName?.(),
+              collection: {
+                name: coll?.name,
+                primaryVarId: coll?.primaryVarId,
+                dataVars: Array.from({ length: coll?.dataVarCount?.() || 0 }, (_, i) => {
+                  const v = coll.dataVar(i);
+                  return { index: i, name: v?.name, uname: v?.uname, units: v?.units, uunits: v?.uunits, type: v?.type, varType: v?.varType };
+                })
+              },
+              section: view?.section ? {
+                name: view.section.name, type: view.section.type, width: view.section.width,
+                bathyType: view.section.bathyType, bathyColor: view.section.bathyColor,
+                xml: view.section.toXml?.()
+              } : null,
+              dataWindows: (view?.dataWinArr || []).map((w, i) => ({
+                index: i + 1, scope: w.scope, plotMode: w.plotMode, autoScale: w.autoScale,
+                xvId: w.xvId, yvId: w.yvId, zvId: w.zvId,
+                xRev: w.xRev, yRev: w.yRev, zRev: w.zRev,
+                xLeft: w.xLeft, xRight: w.xRight,
+                yBottom: w.yBottom, yTop: w.yTop,
+                zBottom: w.zBottom, zTop: w.zTop,
+                xml: w.toXml?.(i + 1)
+              })),
+              viewInfo: {
+                dataWinCount: viewInfo?.dataWinCount,
+                isGeoMap: viewInfo?.isGeoMap,
+                rects: viewInfo ? undefined : undefined
+              },
+              ui: {
+                odvCnvsRects: ui?.odvCnvsRects,
+                colbarCnvsRects: ui?.colbarCnvsRects,
+                imgBounds: {
+                  left: ui?.imgOdvCnvsLeft, right: ui?.imgOdvCnvsRight,
+                  top: ui?.imgOdvCnvsTop, bottom: ui?.imgOdvCnvsBottom,
+                  pixPerHtmlPix: ui?.odvPixPerHtmlPix
                 }
-              } catch (e) {
-                lastError = String(e?.stack || e);
-                logs.push(`[goto-error] ${url} :: ${lastError}`);
               }
-            }
+            }));
+            fs.writeFileSync(`webodv-output/${name}.json`, JSON.stringify(data, null, 2));
+            await page.locator('#ImageArea').screenshot({ path: `webodv-output/${name}.png` });
+          }
 
-            await page.screenshot({ path: 'webodv-output/full-page.png', fullPage: true }).catch(e => logs.push(`[screenshot-error] ${e}`));
-            if (await page.locator('#GridContainer').count()) {
-              await page.locator('#GridContainer').screenshot({ path: 'webodv-output/grid-container.png' }).catch(e => logs.push(`[grid-screenshot-error] ${e}`));
-            }
-            if (await page.locator('#ImageArea').count()) {
-              await page.locator('#ImageArea').screenshot({ path: 'webodv-output/image-area.png' }).catch(e => logs.push(`[image-screenshot-error] ${e}`));
-            }
+          try {
+            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 120000 });
+            await waitReady();
+            await snapshot('00-fullscreen-map');
 
-            const info = await page.evaluate(() => {
-              const result = {
-                url: location.href,
-                title: document.title,
-                readyState: document.readyState,
-                bodyText: document.body?.innerText?.slice(0, 12000) || '',
-                gridPresent: !!document.getElementById('GridContainer'),
-                imageSrcPrefix: document.getElementById('ImageArea')?.getAttribute('src')?.slice(0, 100) || '',
-              };
-              try {
-                if (typeof extPrms !== 'undefined') result.extPrms = { ...extPrms, sessionId: extPrms.sessionId ? '[present]' : '' };
-              } catch (e) { result.extPrmsError = String(e); }
-              try {
-                if (typeof app !== 'undefined') result.app = {
-                  version: app.version,
-                  websocketState: app.websocket?.readyState,
-                };
-              } catch (e) { result.appError = String(e); }
-              try {
-                if (typeof coll !== 'undefined' && coll) {
-                  result.collection = {
-                    name: coll.name,
-                    dataVarCount: coll.dataVarCount?.(),
-                    metaVarCount: coll.metaVarCount?.(),
-                    primaryVarId: coll.primaryVarId,
-                    dataVars: Array.from({ length: coll.dataVarCount?.() || 0 }, (_, i) => {
-                      const v = coll.dataVar(i);
-                      return { index: i, id: v?.id, name: v?.name, uname: v?.uname, units: v?.units, uunits: v?.uunits, type: v?.type, varType: v?.varType };
-                    }),
-                    metaVars: Array.from({ length: coll.metaVarCount?.() || 0 }, (_, i) => {
-                      const v = coll.metaVar(i);
-                      return { index: i, id: v?.id, name: v?.name, uname: v?.uname, units: v?.units, uunits: v?.uunits };
-                    })
-                  };
-                }
-              } catch (e) { result.collectionError = String(e?.stack || e); }
-              try {
-                if (typeof view !== 'undefined' && view) {
-                  result.viewXml = view.toXml?.();
-                  result.viewSummary = {
-                    dataWindowCount: view.dataWinArr?.length,
-                    mapDomain: view.mapWin ? { lonMin: view.mapWin.lonMin, lonMax: view.mapWin.lonMax, latMin: view.mapWin.latMin, latMax: view.mapWin.latMax } : null,
-                    section: view.section ? { name: view.section.name, type: view.section.type, width: view.section.width, bathyType: view.section.bathyType, bathyColor: view.section.bathyColor } : null,
-                    dataWindows: (view.dataWinArr || []).map((w, i) => ({
-                      index: i + 1, scope: w.scope, plotMode: w.plotMode,
-                      xvId: w.xvId, yvId: w.yvId, zvId: w.zvId,
-                      xLeft: w.xLeft, xRight: w.xRight, yBottom: w.yBottom, yTop: w.yTop, zBottom: w.zBottom, zTop: w.zTop
-                    }))
-                  };
-                }
-              } catch (e) { result.viewError = String(e?.stack || e); }
-              try {
-                if (typeof viewInfo !== 'undefined' && viewInfo) result.viewInfo = {
-                  dataWinCount: viewInfo.dataWinCount,
-                  valStationCount: viewInfo.valStationCount,
-                  valTotalSampleCount: viewInfo.valTotalSampleCount,
-                  isGeoMap: viewInfo.isGeoMap
-                };
-              } catch (e) { result.viewInfoError = String(e); }
-              return result;
-            }).catch(e => ({ evaluateError: String(e?.stack || e) }));
+            await page.evaluate(() => app.layoutApply('miTwoIsoSurfaceWin'));
+            await page.waitForFunction(() => view?.dataWinArr?.length === 2 && viewInfo?.dataWinCount === 2, { timeout: 120000 });
+            await snapshot('01-two-isosurface');
 
-            fs.writeFileSync('webodv-output/diagnostic.json', JSON.stringify({ loaded, lastError, info, logs }, null, 2));
-            fs.writeFileSync('webodv-output/page.html', await page.content());
+            await page.evaluate(() => app.layoutApply('miOneScatterWin'));
+            await page.waitForFunction(() => view?.dataWinArr?.length === 1 && viewInfo?.dataWinCount === 1, { timeout: 120000 });
+            await snapshot('02-one-scatter');
+
+            await page.evaluate(() => app.layoutApply('miOneSectionWin'));
+            await page.waitForTimeout(10000);
+            await snapshot('03-one-section-attempt');
           } catch (e) {
-            lastError = String(e?.stack || e);
-            logs.push(`[fatal] ${lastError}`);
-            fs.writeFileSync('webodv-output/diagnostic.json', JSON.stringify({ loaded, lastError, logs }, null, 2));
+            logs.push(`[fatal] ${e?.stack || e}`);
+            await page.screenshot({ path: 'webodv-output/failure-full-page.png', fullPage: true }).catch(() => {});
           } finally {
-            if (browser) await browser.close().catch(() => {});
+            fs.writeFileSync('webodv-output/logs.json', JSON.stringify(logs, null, 2));
+            fs.writeFileSync('webodv-output/page.html', await page.content().catch(() => ''));
+            await browser.close();
           }
           JS
           node capture.mjs > webodv-output/node-stdout.txt 2> webodv-output/node-stderr.txt
@@ -153,6 +130,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: webodv-diagnostic
+          name: webodv-layout-diagnostic
           path: webodv-output
           retention-days: 1
