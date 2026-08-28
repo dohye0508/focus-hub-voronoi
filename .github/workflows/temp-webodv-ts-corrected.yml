@@ -1,0 +1,59 @@
+name: Temporary WebODV Corrected TS
+
+on:
+  push:
+    branches:
+      - temp-webodv-capture-20260828
+
+permissions:
+  contents: read
+
+jobs:
+  capture-ts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Playwright
+        run: |
+          npm init -y
+          npm install playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Capture corrected T-S plots
+        continue-on-error: true
+        run: |
+          mkdir -p webodv-ts
+          cat > capture.mjs <<'JS'
+          import { chromium } from 'playwright';
+          import fs from 'node:fs';
+          import path from 'node:path';
+          const OUT='webodv-ts';
+          const URL='https://explore.webodv.awi.de/ocean/woa18/0.25-degree/1_all-years/1_annual/woa18_0.25deg_all-years_annual/';
+          const browser=await chromium.launch({headless:true});
+          const context=await browser.newContext({viewport:{width:1920,height:1080},locale:'en-US',timezoneId:'UTC',ignoreHTTPSErrors:true,acceptDownloads:true});
+          const page=await context.newPage();
+          const report={started:new Date().toISOString(),captures:[],errors:[],logs:[]};
+          page.on('console',m=>report.logs.push(`[console:${m.type()}] ${m.text()}`));
+          page.on('pageerror',e=>report.logs.push(`[pageerror] ${e.stack||e.message}`));
+          const sleep=ms=>page.waitForTimeout(ms);
+          const record=(stage,e)=>{const s=String(e?.stack||e);report.errors.push({stage,error:s});console.error(stage,s);};
+          async function waitReady(){await page.waitForFunction(()=>{try{return typeof app!=='undefined'&&app.websocket?.readyState===1&&typeof coll!=='undefined'&&!!coll.name&&typeof view!=='undefined'&&document.getElementById('ImageArea')?.src?.startsWith('data:image/');}catch{return false;}},null,{timeout:180000});await sleep(5000);}
+          async function waitCanvas(ms=5000){await page.waitForFunction(()=>{try{return appState.isCnvsReady?.()&&document.getElementById('ImageArea')?.src?.startsWith('data:image/');}catch{return false;}},null,{timeout:600000});await sleep(ms);}
+          async function loadBase(){await page.evaluate(()=>app.onViewLoad('$FullScreenMap$'));await sleep(8000);await waitCanvas(3000);}
+          async function setDomain(d){const before=await page.evaluate(()=>viewHistory.size());await page.evaluate(d=>app.sendWsMsg(Msg.setMapDomain(d.w,d.e,d.s,d.n)+','+Msg.msgGetCanvasCurrInfo),d);await page.waitForFunction(b=>viewHistory.size()>b,before,{timeout:300000});await waitCanvas(4000);}
+          async function layout(){const before=await page.evaluate(()=>viewHistory.size());await page.evaluate(()=>app.layoutApply('miOneScatterWin'));await page.waitForFunction(b=>viewHistory.size()>b&&view.dataWinArr?.length===1,before,{timeout:300000});await waitCanvas(5000);}
+          async function configure(name){const before=await page.evaluate(name=>{const b=viewHistory.size();view.setDataWinVars(1,1,2,1,0,'F','F','T');const w=view.dataWinArr[0];w.plotMode=0;w.symbSize=-0.1;w.drawContours='F';w.autoContours='T';w.contours=[];app.sendWsMsg(Msg.loadView(view.toXml(),name,'X Salinity, Y Temperature, Z Depth'));return b;},name);await page.waitForFunction(b=>{const w=view.dataWinArr?.[0];return viewHistory.size()>b&&w?.xvId===2&&w?.yvId===1&&w?.zvId===0&&w?.xRev==='F'&&w?.yRev==='F'&&w?.zRev==='T'&&/Salinity/i.test(w.xLbl)&&/Temperature/i.test(w.yLbl)&&/Depth/i.test(w.zLbl);},before,{timeout:600000});await waitCanvas(8000);}
+          async function exportWin(name,domain){let downloaded=false;try{const p=page.waitForEvent('download',{timeout:600000});await page.evaluate(()=>app.sendWsMsg(Msg.exportGraphics(1,'png',200,'normal',false)));const d=await p;await d.saveAs(path.join(OUT,`${name}.png`));downloaded=true;}catch(e){record(`export:${name}`,e);}const state=await page.evaluate(()=>{const w=view.dataWinArr[0];return {collection:coll.name,viewName:viewHistory.currentName(),xvId:w.xvId,yvId:w.yvId,zvId:w.zvId,xLbl:w.xLbl,yLbl:w.yLbl,zLbl:w.zLbl,xRev:w.xRev,yRev:w.yRev,zRev:w.zRev,viewXml:view.toXml()};});fs.writeFileSync(path.join(OUT,`${name}.json`),JSON.stringify({domain,state},null,2));await page.locator('#ImageArea').screenshot({path:path.join(OUT,`${name}-canvas.png`)});report.captures.push({name,downloaded,domain,state});}
+          async function capture(name,domain){await loadBase();await setDomain(domain);await layout();await configure(name);await exportWin(name,domain);}
+          try{await page.goto(URL,{waitUntil:'domcontentloaded',timeout:150000});await waitReady();await capture('04_east_sea_TS_corrected',{w:127.5,e:142,s:33,n:48});await capture('05_west_sea_TS_corrected',{w:119,e:127.5,s:31,n:42});}catch(e){record('main',e);}finally{report.finished=new Date().toISOString();fs.writeFileSync(path.join(OUT,'capture-report.json'),JSON.stringify(report,null,2));await browser.close();}
+          JS
+          node capture.mjs > webodv-ts/stdout.txt 2> webodv-ts/stderr.txt
+      - name: Upload corrected T-S plots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: webodv-corrected-ts
+          path: webodv-ts
+          retention-days: 1
