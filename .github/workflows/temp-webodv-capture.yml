@@ -65,7 +65,7 @@ jobs:
                 map:{west:view.mapWin.wLon,east:view.mapWin.eLon,south:view.mapWin.sLat,north:view.mapWin.nLat},
                 section:view.section?{name:view.section.name,type:view.section.type,width:view.section.width,bathyType:view.section.bathyType,bathyColor:view.section.bathyColor,xNodes:view.section.xNodes||view.section.xn,yNodes:view.section.yNodes||view.section.yn,xml:view.section.toXml?.()}:null,
                 windows:(view.dataWinArr||[]).map((w,i)=>({window:i+1,scope:w.scope,plotMode:w.plotMode,isGridding:w.isGridding?.(),x:w.xvId,y:w.yvId,z:w.zvId,xRev:w.xRev,yRev:w.yRev,zRev:w.zRev,drawShaded:w.drawShaded,drawContours:w.drawContours,autoContours:w.autoContours,autoScale:w.autoScale,divaUseSectionPolygon:w.DivaUseSecPoly,divaBathymetry:w.DivaBathyFile,dataCount:viewInfo.dataCountsByWin?.[i],xml:w.toXml?.(i+1)})),
-                odvRects:ui.odvCnvsRects,imgNatural:{width:img?.naturalWidth,height:img?.naturalHeight},imgBox:box(img),canvasBox:box(canvas),odvPixPerHtmlPix:ui.odvPixPerHtmlPix,imgOdv:{left:ui.imgOdvCnvsLeft,top:ui.imgOdvCnvsTop,right:ui.imgOdvCnvsRight,bottom:ui.imgOdvCnvsBottom},pointX:ui.ptgCnvsX,pointY:ui.ptgCnvsY,
+                odvRects:ui.odvCnvsRects,imgNatural:{width:img?.naturalWidth,height:img?.naturalHeight},imgBox:box(img),canvasBox:box(canvas),pointX:ui.ptgCnvsX,pointY:ui.ptgCnvsY,
                 visibleControls:[...document.querySelectorAll('input,select,button')].filter(e=>e.offsetParent!==null).map(e=>({tag:e.tagName,id:e.id,value:e.value,text:e.innerText,onclick:e.getAttribute('onclick')})),bodyText:document.body.innerText.slice(0,7000)
               };
             });
@@ -115,15 +115,19 @@ jobs:
 
             const pts=await page.evaluate(()=>{
               const r=ui.odvCnvsRects[0];
+              const img=document.getElementById('ImageArea');
+              const ib=img.getBoundingClientRect();
+              const sx=img.naturalWidth/ib.width;
+              const sy=img.naturalHeight/ib.height;
               const canvas=document.getElementById('CanvasArea');
               const cb=canvas.getBoundingClientRect();
               const west=view.mapWin.wLon,east=view.mapWin.eLon,south=view.mapWin.sLat,north=view.mapWin.nLat;
               const convert=(lon,lat)=>{
                 const ox=r.left+(lon-west)/(east-west)*(r.right-r.left);
                 const oy=r.bottom-(lat-south)/(north-south)*(r.bottom-r.top);
-                return {lon,lat,odvX:ox,odvY:oy,x:cb.left+(ox-ui.imgOdvCnvsLeft)/ui.odvPixPerHtmlPix,y:cb.top+(oy-ui.imgOdvCnvsTop)/ui.odvPixPerHtmlPix};
+                return {lon,lat,odvX:ox,odvY:oy,x:cb.left+ox/sx,y:cb.top+oy/sy};
               };
-              return {p1:convert(130,37),p2:convert(138,37),r,canvas:{left:cb.left,top:cb.top,width:cb.width,height:cb.height},scale:ui.odvPixPerHtmlPix};
+              return {p1:convert(130,37),p2:convert(138,37),r,image:{left:ib.left,top:ib.top,width:ib.width,height:ib.height,naturalWidth:img.naturalWidth,naturalHeight:img.naturalHeight},canvas:{left:cb.left,top:cb.top,width:cb.width,height:cb.height},scale:{x:sx,y:sy}};
             });
             report.pointCoordinates=pts;
             await page.mouse.click(pts.p1.x,pts.p1.y);
@@ -171,6 +175,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: webodv-37N-sections-real-clicks
+          name: webodv-37N-sections-scaled-clicks
           path: webodv-output
           retention-days: 1
