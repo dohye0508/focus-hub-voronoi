@@ -11,7 +11,7 @@ permissions:
 jobs:
   capture:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,114 +22,368 @@ jobs:
           npm init -y
           npm install playwright@1.55.0
           npx playwright install --with-deps chromium
-      - name: Inspect WebODV layouts
+      - name: Capture configured WebODV figures
         continue-on-error: true
         run: |
           mkdir -p webodv-output
           cat > capture.mjs <<'JS'
           import { chromium } from 'playwright';
           import fs from 'node:fs';
+          import path from 'node:path';
 
-          const url = 'https://explore.webodv.awi.de/ocean/woa18/0.25-degree/1_all-years/1_annual/woa18_0.25deg_all-years_annual/';
+          const OUT = 'webodv-output';
+          const URLS = {
+            allYears: 'https://explore.webodv.awi.de/ocean/woa18/0.25-degree/1_all-years/1_annual/woa18_0.25deg_all-years_annual/',
+            early: 'https://explore.webodv.awi.de/ocean/woa18/1.00-degree/3_1955-1964/1_annual/woa18_1.00deg_1955-1964_annual/',
+            recent: 'https://explore.webodv.awi.de/ocean/woa18/1.00-degree/8_2005-2017/1_annual/woa18_1.00deg_2005-2017_annual/'
+          };
+
           const browser = await chromium.launch({ headless: true });
-          const context = await browser.newContext({
-            viewport: { width: 1920, height: 1080 },
-            locale: 'en-US', timezoneId: 'UTC', ignoreHTTPSErrors: true
-          });
-          const page = await context.newPage();
-          const logs = [];
-          page.on('console', msg => logs.push(`[console:${msg.type()}] ${msg.text()}`));
-          page.on('pageerror', err => logs.push(`[pageerror] ${err.stack || err.message}`));
-          page.on('requestfailed', req => logs.push(`[requestfailed] ${req.url()} :: ${req.failure()?.errorText}`));
+          const report = { started: new Date().toISOString(), captures: [], errors: [], sessions: [] };
 
-          async function waitReady(timeout = 120000) {
+          function recordError(stage, error) {
+            const text = String(error?.stack || error);
+            console.error(stage, text);
+            report.errors.push({ stage, error: text });
+          }
+
+          async function openDataset(url, label) {
+            const context = await browser.newContext({
+              viewport: { width: 1920, height: 1080 },
+              locale: 'en-US',
+              timezoneId: 'UTC',
+              ignoreHTTPSErrors: true,
+              acceptDownloads: true
+            });
+            const page = await context.newPage();
+            const logs = [];
+            page.on('console', msg => logs.push(`[console:${msg.type()}] ${msg.text()}`));
+            page.on('pageerror', err => logs.push(`[pageerror] ${err.stack || err.message}`));
+            page.on('requestfailed', req => logs.push(`[requestfailed] ${req.url()} :: ${req.failure()?.errorText}`));
+            const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 150000 });
             await page.waitForFunction(() => {
               try {
                 return typeof app !== 'undefined' && app.websocket?.readyState === 1 &&
                   typeof coll !== 'undefined' && coll.dataVarCount?.() > 0 &&
-                  typeof view !== 'undefined' &&
-                  document.getElementById('ImageArea')?.getAttribute('src')?.startsWith('data:image/png');
+                  typeof view !== 'undefined' && typeof appState !== 'undefined' &&
+                  appState.isCnvsReady?.() &&
+                  document.getElementById('ImageArea')?.getAttribute('src')?.startsWith('data:image/');
               } catch { return false; }
-            }, { timeout });
+            }, null, { timeout: 180000 });
+            await page.waitForTimeout(3000);
+            report.sessions.push({ label, url: page.url(), status: response?.status(), title: await page.title(), logs });
+            return { context, page, logs };
           }
 
-          async function snapshot(name) {
-            await page.waitForTimeout(5000);
-            const data = await page.evaluate(() => ({
-              title: document.title,
-              viewXml: view?.toXml?.(),
-              viewHistoryName: viewHistory?.currentName?.(),
-              collection: {
-                name: coll?.name,
-                primaryVarId: coll?.primaryVarId,
-                dataVars: Array.from({ length: coll?.dataVarCount?.() || 0 }, (_, i) => {
-                  const v = coll.dataVar(i);
-                  return { index: i, name: v?.name, uname: v?.uname, units: v?.units, uunits: v?.uunits, type: v?.type, varType: v?.varType };
-                })
-              },
-              section: view?.section ? {
-                name: view.section.name, type: view.section.type, width: view.section.width,
-                bathyType: view.section.bathyType, bathyColor: view.section.bathyColor,
-                xml: view.section.toXml?.()
-              } : null,
-              dataWindows: (view?.dataWinArr || []).map((w, i) => ({
-                index: i + 1, scope: w.scope, plotMode: w.plotMode, autoScale: w.autoScale,
-                xvId: w.xvId, yvId: w.yvId, zvId: w.zvId,
-                xRev: w.xRev, yRev: w.yRev, zRev: w.zRev,
-                xLeft: w.xLeft, xRight: w.xRight,
-                yBottom: w.yBottom, yTop: w.yTop,
-                zBottom: w.zBottom, zTop: w.zTop,
-                xml: w.toXml?.(i + 1)
-              })),
-              viewInfo: {
-                dataWinCount: viewInfo?.dataWinCount,
-                isGeoMap: viewInfo?.isGeoMap,
-                rects: viewInfo ? undefined : undefined
-              },
-              ui: {
-                odvCnvsRects: ui?.odvCnvsRects,
-                colbarCnvsRects: ui?.colbarCnvsRects,
-                imgBounds: {
-                  left: ui?.imgOdvCnvsLeft, right: ui?.imgOdvCnvsRight,
-                  top: ui?.imgOdvCnvsTop, bottom: ui?.imgOdvCnvsBottom,
-                  pixPerHtmlPix: ui?.odvPixPerHtmlPix
-                }
-              }
-            }));
-            fs.writeFileSync(`webodv-output/${name}.json`, JSON.stringify(data, null, 2));
-            await page.locator('#ImageArea').screenshot({ path: `webodv-output/${name}.png` });
+          async function waitCanvas(page, predicate = null, timeout = 240000) {
+            if (predicate) {
+              await page.waitForFunction(predicate, null, { timeout });
+            }
+            await page.waitForFunction(() => {
+              try {
+                return appState.isCnvsReady?.() &&
+                  document.getElementById('ImageArea')?.getAttribute('src')?.startsWith('data:image/');
+              } catch { return false; }
+            }, null, { timeout });
+            await page.waitForTimeout(6000);
           }
 
-          try {
-            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 120000 });
-            await waitReady();
-            await snapshot('00-fullscreen-map');
+          async function saveState(page, name, settings = {}) {
+            const state = await page.evaluate(() => {
+              const basicVars = Array.from({ length: coll.dataVarCount() }, (_, i) => {
+                const v = coll.dataVar(i);
+                return { id: i, name: v.name, uname: v.uname, units: v.units, uunits: v.uunits };
+              });
+              return {
+                collection: coll.name,
+                title: document.title,
+                viewName: viewHistory.currentName(),
+                viewXml: view.toXml(),
+                basicVars,
+                isoVarIds: ui.dockIsoVarIds,
+                isoVarLabels: ui.dockIsoVarLabels,
+                section: view.section ? {
+                  name: view.section.name, type: view.section.type, width: view.section.width,
+                  bathyType: view.section.bathyType, xNodes: view.section.xNodes,
+                  yNodes: view.section.yNodes, xml: view.section.toXml?.()
+                } : null,
+                mapDomain: view.mapWin ? {
+                  west: view.mapWin.wLon, east: view.mapWin.eLon,
+                  south: view.mapWin.sLat, north: view.mapWin.nLat
+                } : null,
+                stationDomain: view.statFilter ? {
+                  west: view.statFilter.wLonDom, east: view.statFilter.eLonDom,
+                  south: view.statFilter.sLatDom, north: view.statFilter.nLatDom
+                } : null,
+                windows: (view.dataWinArr || []).map((w, index) => ({
+                  window: index + 1, scope: w.scope, plotMode: w.plotMode,
+                  xVar: w.xvId, yVar: w.yvId, zVar: w.zvId,
+                  xReversed: w.xRev, yReversed: w.yRev, zReversed: w.zRev,
+                  drawShaded: w.drawShaded, drawContours: w.drawContours,
+                  autoContours: w.autoContours, griddingAutoScale: w.autoScale,
+                  divaUseSectionPolygon: w.DivaUseSecPoly,
+                  divaBathymetry: w.DivaBathyFile,
+                  dataCount: viewInfo.dataCountsByWin?.[index]
+                }))
+              };
+            });
+            fs.writeFileSync(path.join(OUT, `${name}.json`), JSON.stringify({ settings, state }, null, 2));
+            await page.locator('#ImageArea').screenshot({ path: path.join(OUT, `${name}_webodv-canvas.png`) });
+            return state;
+          }
 
-            await page.evaluate(() => app.layoutApply('miTwoIsoSurfaceWin'));
-            await page.waitForFunction(() => view?.dataWinArr?.length === 2 && viewInfo?.dataWinCount === 2, { timeout: 120000 });
-            await snapshot('01-two-isosurface');
+          async function exportWindow(page, winId, name, settings = {}) {
+            const outputPath = path.join(OUT, `${name}.png`);
+            let downloaded = false;
+            try {
+              const downloadPromise = page.waitForEvent('download', { timeout: 180000 });
+              await page.evaluate(({ winId }) => {
+                app.sendWsMsg(Msg.exportGraphics(winId, 'png', 200, 'normal', false));
+              }, { winId });
+              const download = await downloadPromise;
+              await download.saveAs(outputPath);
+              downloaded = true;
+            } catch (error) {
+              recordError(`export:${name}`, error);
+            }
+            const state = await saveState(page, name, settings);
+            report.captures.push({ name, winId, downloaded, outputPath, settings, stateSummary: {
+              collection: state.collection, windows: state.windows, section: state.section,
+              mapDomain: state.mapDomain, stationDomain: state.stationDomain
+            }});
+            return downloaded;
+          }
 
+          function findBasicId(state, name) {
+            const item = state.basicVars.find(v => v.uname.toLowerCase() === name.toLowerCase() || v.name.toLowerCase() === name.toLowerCase());
+            if (!item) throw new Error(`Basic variable not found: ${name}`);
+            return item.id;
+          }
+
+          async function getVariableIds(page) {
+            return await page.evaluate(() => {
+              const basic = Array.from({ length: coll.dataVarCount() }, (_, i) => {
+                const v = coll.dataVar(i);
+                return { id: i, name: v.name, uname: v.uname };
+              });
+              const iso = (ui.dockIsoVarIds || []).map((id, i) => ({ id, label: ui.dockIsoVarLabels[i] }));
+              const pickBasic = name => {
+                const hit = basic.find(v => v.name.toLowerCase() === name.toLowerCase() || v.uname.toLowerCase() === name.toLowerCase());
+                if (!hit) throw new Error(`Missing variable ${name}`);
+                return hit.id;
+              };
+              const pickIso = name => {
+                const hit = iso.find(v => v.label.toLowerCase().startsWith(name.toLowerCase()) && v.label.toLowerCase().includes('depth'));
+                if (!hit) throw new Error(`Missing isosurface variable ${name}`);
+                return hit.id;
+              };
+              return {
+                longitude: 0,
+                latitude: 1,
+                depth: pickBasic('Depth'),
+                temperature: pickBasic('Temperature'),
+                salinity: pickBasic('Salinity'),
+                surfaceTemperature: pickIso('Temperature'),
+                surfaceSalinity: pickIso('Salinity'),
+                basic, iso
+              };
+            });
+          }
+
+          async function captureSurfacePair() {
+            const { context, page } = await openDataset(URLS.allYears, 'all-years-surface');
+            try {
+              const vars = await getVariableIds(page);
+              await page.evaluate(() => app.layoutApply('miTwoIsoSurfaceWin'));
+              await page.waitForFunction(() => view.dataWinArr?.length === 2 && viewInfo.dataWinCount === 2, null, { timeout: 180000 });
+              await page.evaluate((vars) => {
+                view.setDataWinVars(1, 3, vars.longitude, vars.latitude, vars.surfaceTemperature, 'F', 'F', 'F');
+                view.setDataWinVars(2, 3, vars.longitude, vars.latitude, vars.surfaceSalinity, 'F', 'F', 'F');
+                app.sendWsMsg(Msg.loadView(view.toXml(), 'Configured_Surface_Temperature_Salinity', 'Set surface variables'));
+              }, vars);
+              await waitCanvas(page, () => view.dataWinArr?.length === 2 &&
+                view.dataWinArr[0].zvId === ui.dockIsoVarIds[ui.dockIsoVarLabels.findIndex(x => x.startsWith('Temperature'))] &&
+                view.dataWinArr[1].zvId === ui.dockIsoVarIds[ui.dockIsoVarLabels.findIndex(x => x.startsWith('Salinity'))]);
+              await exportWindow(page, 1, '01_surface_temperature', {
+                dataset: 'WOA18 0.25 degree All-Years Annual',
+                scope: 'SURFACE', x: 'Longitude', y: 'Latitude', z: 'Temperature @ Depth=first'
+              });
+              await exportWindow(page, 2, '02_surface_salinity', {
+                dataset: 'WOA18 0.25 degree All-Years Annual',
+                scope: 'SURFACE', x: 'Longitude', y: 'Latitude', z: 'Salinity @ Depth=first'
+              });
+            } catch (error) { recordError('surface-pair', error); }
+            await context.close();
+          }
+
+          async function capturePeriodSurface(url, label, filename) {
+            const { context, page } = await openDataset(url, label);
+            try {
+              const vars = await getVariableIds(page);
+              await page.evaluate(() => app.layoutApply('miOneIsoSurfaceWin'));
+              await page.waitForFunction(() => view.dataWinArr?.length === 1 && viewInfo.dataWinCount === 1, null, { timeout: 180000 });
+              await page.evaluate((vars) => {
+                view.setDataWinVars(1, 3, vars.longitude, vars.latitude, vars.surfaceTemperature, 'F', 'F', 'F');
+                app.sendWsMsg(Msg.loadView(view.toXml(), 'Configured_Period_Surface_Temperature', 'Set period surface temperature'));
+              }, vars);
+              await waitCanvas(page, () => view.dataWinArr?.length === 1 &&
+                ui.dockIsoVarLabels[ui.dockIsoVarIds.indexOf(view.dataWinArr[0].zvId)]?.startsWith('Temperature'));
+              await exportWindow(page, 1, filename, {
+                dataset: label,
+                scope: 'SURFACE', x: 'Longitude', y: 'Latitude', z: 'Temperature @ Depth=first'
+              });
+            } catch (error) { recordError(label, error); }
+            await context.close();
+          }
+
+          async function configureScatter(page, vars, bounds, viewName) {
             await page.evaluate(() => app.layoutApply('miOneScatterWin'));
-            await page.waitForFunction(() => view?.dataWinArr?.length === 1 && viewInfo?.dataWinCount === 1, { timeout: 120000 });
-            await snapshot('02-one-scatter');
-
-            await page.evaluate(() => app.layoutApply('miOneSectionWin'));
-            await page.waitForTimeout(10000);
-            await snapshot('03-one-section-attempt');
-          } catch (e) {
-            logs.push(`[fatal] ${e?.stack || e}`);
-            await page.screenshot({ path: 'webodv-output/failure-full-page.png', fullPage: true }).catch(() => {});
-          } finally {
-            fs.writeFileSync('webodv-output/logs.json', JSON.stringify(logs, null, 2));
-            fs.writeFileSync('webodv-output/page.html', await page.content().catch(() => ''));
-            await browser.close();
+            await page.waitForFunction(() => view.dataWinArr?.length === 1 && viewInfo.dataWinCount === 1, null, { timeout: 180000 });
+            await page.evaluate(({ vars, bounds, viewName }) => {
+              view.mapWin.setDomain(bounds.west, bounds.east, bounds.south, bounds.north);
+              view.statFilter.setDefaults();
+              view.statFilter.wLonDom = bounds.west;
+              view.statFilter.eLonDom = bounds.east;
+              view.statFilter.sLatDom = bounds.south;
+              view.statFilter.nLatDom = bounds.north;
+              view.setDataWinVars(1, 1, vars.salinity, vars.temperature, vars.depth, 'F', 'F', 'T');
+              const w = view.dataWinArr[0];
+              w.plotMode = 0;
+              w.symbSize = 0.7;
+              w.drawMarks = 'F';
+              app.sendWsMsg(Msg.loadView(view.toXml(), viewName, 'Set T-S variables and regional domain'));
+            }, { vars, bounds, viewName });
+            await waitCanvas(page, () => view.dataWinArr?.length === 1 &&
+              view.dataWinArr[0].scope === 1 &&
+              view.dataWinArr[0].xvId === 2 &&
+              view.dataWinArr[0].yvId === 1 &&
+              view.dataWinArr[0].zvId === 0 &&
+              viewInfo.dataCountsByWin?.[0] > 0, 300000);
           }
+
+          async function captureScatterPair() {
+            const { context, page } = await openDataset(URLS.allYears, 'all-years-scatter');
+            try {
+              const vars = await getVariableIds(page);
+              const east = { west: 128, east: 140, south: 33, north: 44 };
+              await configureScatter(page, vars, east, 'East_Sea_TS');
+              await exportWindow(page, 1, '05_east_sea_temperature_salinity', {
+                dataset: 'WOA18 0.25 degree All-Years Annual',
+                region: east, scope: 'SCATTER', x: 'Salinity', y: 'Temperature', z: 'Depth'
+              });
+
+              const west = { west: 117, east: 127, south: 31, north: 41 };
+              await page.evaluate(({ vars, bounds }) => {
+                view.mapWin.setDomain(bounds.west, bounds.east, bounds.south, bounds.north);
+                view.statFilter.setDefaults();
+                view.statFilter.wLonDom = bounds.west;
+                view.statFilter.eLonDom = bounds.east;
+                view.statFilter.sLatDom = bounds.south;
+                view.statFilter.nLatDom = bounds.north;
+                view.setDataWinVars(1, 1, vars.salinity, vars.temperature, vars.depth, 'F', 'F', 'T');
+                app.sendWsMsg(Msg.loadView(view.toXml(), 'West_Sea_TS', 'Set West Sea T-S domain'));
+              }, { vars, bounds: west });
+              await waitCanvas(page, () => view.dataWinArr?.length === 1 &&
+                view.dataWinArr[0].xvId === 2 && view.dataWinArr[0].yvId === 1 &&
+                view.dataWinArr[0].zvId === 0 && viewInfo.dataCountsByWin?.[0] > 0, 300000);
+              await exportWindow(page, 1, '06_west_sea_temperature_salinity', {
+                dataset: 'WOA18 0.25 degree All-Years Annual',
+                region: west, scope: 'SCATTER', x: 'Salinity', y: 'Temperature', z: 'Depth'
+              });
+            } catch (error) { recordError('scatter-pair', error); }
+            await context.close();
+          }
+
+          async function captureSections() {
+            const { context, page } = await openDataset(URLS.allYears, 'all-years-section');
+            try {
+              const vars = await getVariableIds(page);
+              const bounds = { west: 128, east: 140, south: 33, north: 44 };
+              await page.evaluate(({ bounds }) => {
+                view.mapWin.setDomain(bounds.west, bounds.east, bounds.south, bounds.north);
+                view.statFilter.setDefaults();
+                view.statFilter.wLonDom = bounds.west;
+                view.statFilter.eLonDom = bounds.east;
+                view.statFilter.sLatDom = bounds.south;
+                view.statFilter.nLatDom = bounds.north;
+                app.sendWsMsg(Msg.loadView(view.toXml(), 'East_Sea_37N_Map', 'Set East Sea map and station domain'));
+              }, { bounds });
+              await waitCanvas(page, () => view.mapWin.wLon === 128 && view.mapWin.eLon === 140, 180000);
+
+              await page.evaluate(() => {
+                const sectionCmd = JSON.stringify({
+                  cmd: 'execute_option', option: 'set_section', description: 'Manage Section',
+                  name: '37N_130E_to_138E', type: 1, km_width: 20,
+                  bathy_type: 3, bathy_color: 17,
+                  x_coords: [130, 138], y_coords: [37, 37]
+                });
+                app.sendWsMsg(sectionCmd + ',' + Msg.msgGetDockDataVarLbls + ',' + Msg.msgGetCanvasCurrInfo);
+              });
+              await page.waitForFunction(() => view.section?.isValid?.() &&
+                view.section.xNodes?.length >= 2 && view.section.yNodes?.length >= 2, null, { timeout: 240000 });
+              await waitCanvas(page);
+
+              await page.evaluate(() => app.layoutApply('miTwoSectionWin'));
+              await page.waitForFunction(() => view.dataWinArr?.length === 2 && viewInfo.dataWinCount === 2, null, { timeout: 240000 });
+              await page.evaluate((vars) => {
+                view.setDataWinVars(1, 2, App.VID_SECTION_COORD, vars.depth, vars.temperature, 'F', 'T', 'F');
+                view.setDataWinVars(2, 2, App.VID_SECTION_COORD, vars.depth, vars.salinity, 'F', 'T', 'F');
+                for (const w of view.dataWinArr) {
+                  w.plotMode = 7;
+                  w.autoScale = 'T';
+                  w.xScale = 2;
+                  w.yScale = 2;
+                  w.isopycnicGridding = 'F';
+                  w.drawShaded = 'T';
+                  w.hideBad = 'T';
+                  w.hideDistance = 3;
+                  w.drawContours = 'T';
+                  w.autoContours = 'T';
+                  w.contours = [];
+                  w.DivaUseSecPoly = 'T';
+                  w.DivaBathyFile = 'GEBCO_2023_2x2min_Global.nc';
+                  w.DivaBathyVal = App.missDOUBLE;
+                }
+                app.sendWsMsg(Msg.loadView(view.toXml(), '37N_Temperature_Salinity_Sections', 'Set section variables and DIVA gridding'));
+              }, vars);
+              await waitCanvas(page, () => view.dataWinArr?.length === 2 &&
+                view.dataWinArr[0].scope === 2 && view.dataWinArr[0].xvId === App.VID_SECTION_COORD &&
+                view.dataWinArr[0].yvId === 0 && view.dataWinArr[0].zvId === 1 &&
+                view.dataWinArr[1].scope === 2 && view.dataWinArr[1].xvId === App.VID_SECTION_COORD &&
+                view.dataWinArr[1].yvId === 0 && view.dataWinArr[1].zvId === 2 &&
+                viewInfo.dataCountsByWin?.[0] > 0 && viewInfo.dataCountsByWin?.[1] > 0, 420000);
+
+              await exportWindow(page, 1, '07_37N_130E-138E_temperature_section', {
+                dataset: 'WOA18 0.25 degree All-Years Annual',
+                section: { latitude: 37, west: 130, east: 138, meanWidthKm: 20 },
+                scope: 'SECTION', x: 'Section Coordinate: Longitude', y: 'Depth', z: 'Temperature',
+                display: 'DIVA gridding, color shading, automatic contours, GEBCO bathymetry'
+              });
+              await exportWindow(page, 2, '08_37N_130E-138E_salinity_section', {
+                dataset: 'WOA18 0.25 degree All-Years Annual',
+                section: { latitude: 37, west: 130, east: 138, meanWidthKm: 20 },
+                scope: 'SECTION', x: 'Section Coordinate: Longitude', y: 'Depth', z: 'Salinity',
+                display: 'DIVA gridding, color shading, automatic contours, GEBCO bathymetry'
+              });
+            } catch (error) { recordError('sections', error); }
+            await context.close();
+          }
+
+          try { await captureSurfacePair(); } catch (e) { recordError('captureSurfacePair:outer', e); }
+          try { await capturePeriodSurface(URLS.early, 'WOA18 1.00 degree 1955-1964 Annual', '03_surface_temperature_1955-1964'); } catch (e) { recordError('early-period:outer', e); }
+          try { await capturePeriodSurface(URLS.recent, 'WOA18 1.00 degree 2005-2017 Annual', '04_surface_temperature_2005-2017'); } catch (e) { recordError('recent-period:outer', e); }
+          try { await captureScatterPair(); } catch (e) { recordError('captureScatterPair:outer', e); }
+          try { await captureSections(); } catch (e) { recordError('captureSections:outer', e); }
+
+          report.finished = new Date().toISOString();
+          fs.writeFileSync(path.join(OUT, 'capture-report.json'), JSON.stringify(report, null, 2));
+          await browser.close();
           JS
           node capture.mjs > webodv-output/node-stdout.txt 2> webodv-output/node-stderr.txt
-      - name: Upload diagnostic artifact
+      - name: Upload captures
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: webodv-layout-diagnostic
+          name: webodv-configured-captures
           path: webodv-output
           retention-days: 1
