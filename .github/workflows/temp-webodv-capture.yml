@@ -1,0 +1,146 @@
+name: Temporary WebODV Capture
+
+on:
+  push:
+    branches:
+      - temp-webodv-capture-20260828
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Playwright
+        run: |
+          npm init -y
+          npm install playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Capture and inspect WebODV
+        run: |
+          mkdir -p webodv-output
+          cat > /tmp/capture.mjs <<'JS'
+          import { chromium } from 'playwright';
+          import fs from 'node:fs';
+
+          const urls = [
+            'https://explore.webodv.awi.de/ocean/woa18/0.25-degree/1_all-years/1_annual/woa18_0.25deg_all-years_annual/',
+            'https://webodv.eoscfe.mesocentre.uca.fr/ocean/woa18/0.25-degree/1_all-years/1_annual/woa18_0.25deg_all-years_annual/'
+          ];
+
+          const browser = await chromium.launch({ headless: true });
+          const context = await browser.newContext({
+            viewport: { width: 1920, height: 1080 },
+            locale: 'en-US',
+            timezoneId: 'UTC',
+            ignoreHTTPSErrors: true
+          });
+          const page = await context.newPage();
+          const logs = [];
+          page.on('console', msg => logs.push(`[console:${msg.type()}] ${msg.text()}`));
+          page.on('pageerror', err => logs.push(`[pageerror] ${err.stack || err.message}`));
+          page.on('requestfailed', req => logs.push(`[requestfailed] ${req.url()} :: ${req.failure()?.errorText}`));
+
+          let loaded = false;
+          let lastError = '';
+          for (const url of urls) {
+            try {
+              const resp = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 120000 });
+              logs.push(`[goto] ${url} status=${resp?.status()}`);
+              await page.waitForTimeout(45000);
+              if ((await page.title()).toLowerCase().includes('woa18') || await page.locator('#GridContainer').count()) {
+                loaded = true;
+                break;
+              }
+            } catch (e) {
+              lastError = String(e?.stack || e);
+              logs.push(`[goto-error] ${url} :: ${lastError}`);
+            }
+          }
+
+          await page.screenshot({ path: 'webodv-output/full-page.png', fullPage: true });
+          if (await page.locator('#GridContainer').count()) {
+            await page.locator('#GridContainer').screenshot({ path: 'webodv-output/grid-container.png' }).catch(() => {});
+          }
+          if (await page.locator('#ImageArea').count()) {
+            await page.locator('#ImageArea').screenshot({ path: 'webodv-output/image-area.png' }).catch(() => {});
+          }
+
+          const info = await page.evaluate(() => {
+            const result = {
+              url: location.href,
+              title: document.title,
+              readyState: document.readyState,
+              bodyText: document.body?.innerText?.slice(0, 12000) || '',
+              gridPresent: !!document.getElementById('GridContainer'),
+              imageSrcPrefix: document.getElementById('ImageArea')?.getAttribute('src')?.slice(0, 100) || '',
+            };
+            try {
+              if (typeof extPrms !== 'undefined') result.extPrms = { ...extPrms, sessionId: extPrms.sessionId ? '[present]' : '' };
+            } catch (e) { result.extPrmsError = String(e); }
+            try {
+              if (typeof app !== 'undefined') result.app = {
+                version: app.version,
+                websocketState: app.websocket?.readyState,
+              };
+            } catch (e) { result.appError = String(e); }
+            try {
+              if (typeof coll !== 'undefined' && coll) {
+                result.collection = {
+                  name: coll.name,
+                  dataVarCount: coll.dataVarCount?.(),
+                  metaVarCount: coll.metaVarCount?.(),
+                  primaryVarId: coll.primaryVarId,
+                  dataVars: Array.from({ length: coll.dataVarCount?.() || 0 }, (_, i) => {
+                    const v = coll.dataVar(i);
+                    return { index: i, id: v?.id, name: v?.name, uname: v?.uname, units: v?.units, uunits: v?.uunits, type: v?.type, varType: v?.varType };
+                  }),
+                  metaVars: Array.from({ length: coll.metaVarCount?.() || 0 }, (_, i) => {
+                    const v = coll.metaVar(i);
+                    return { index: i, id: v?.id, name: v?.name, uname: v?.uname, units: v?.units, uunits: v?.uunits };
+                  })
+                };
+              }
+            } catch (e) { result.collectionError = String(e?.stack || e); }
+            try {
+              if (typeof view !== 'undefined' && view) {
+                result.viewXml = view.toXml?.();
+                result.viewSummary = {
+                  dataWindowCount: view.dataWinArr?.length,
+                  mapDomain: view.mapWin ? { lonMin: view.mapWin.lonMin, lonMax: view.mapWin.lonMax, latMin: view.mapWin.latMin, latMax: view.mapWin.latMax } : null,
+                  dataWindows: (view.dataWinArr || []).map((w, i) => ({
+                    index: i + 1, scope: w.scope, plotMode: w.plotMode,
+                    xvId: w.xvId, yvId: w.yvId, zvId: w.zvId,
+                    xLeft: w.xLeft, xRight: w.xRight, yBottom: w.yBottom, yTop: w.yTop, zBottom: w.zBottom, zTop: w.zTop
+                  }))
+                };
+              }
+            } catch (e) { result.viewError = String(e?.stack || e); }
+            try {
+              if (typeof viewInfo !== 'undefined' && viewInfo) result.viewInfo = {
+                dataWinCount: viewInfo.dataWinCount,
+                valStationCount: viewInfo.valStationCount,
+                valTotalSampleCount: viewInfo.valTotalSampleCount,
+                isGeoMap: viewInfo.isGeoMap
+              };
+            } catch (e) { result.viewInfoError = String(e); }
+            return result;
+          });
+
+          fs.writeFileSync('webodv-output/diagnostic.json', JSON.stringify({ loaded, lastError, info, logs }, null, 2));
+          fs.writeFileSync('webodv-output/page.html', await page.content());
+          await browser.close();
+          JS
+          node /tmp/capture.mjs
+      - name: Upload diagnostic artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: webodv-diagnostic
+          path: webodv-output
+          retention-days: 1
